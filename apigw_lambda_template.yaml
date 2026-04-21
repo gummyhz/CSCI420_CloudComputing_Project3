@@ -1,0 +1,455 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Serve static website over HTTPS using API Gateway + Lambda + private S3 origin, with DynamoDB tunings API'
+
+Parameters:
+  SiteContentBucketNamePrefix:
+    Type: String
+    Default: scalable-tuner-content
+    Description: Prefix for S3 bucket name used to store static files
+
+  EntryObjectKey:
+    Type: String
+    Default: tuner.html
+    Description: Key for the entry HTML file in S3
+
+  TuningsTableName:
+    Type: String
+    Default: tuner-custom-tunings
+    Description: DynamoDB table name for custom tunings
+
+  ExistingLambdaExecutionRoleArn:
+    Type: String
+    Default: ''
+    Description: Optional existing Lambda execution role ARN. If set, the stack will not create a new IAM role.
+
+Conditions:
+  UseExistingLambdaRole: !Not [!Equals [!Ref ExistingLambdaExecutionRoleArn, '']]
+  CreateLambdaRole: !Equals [!Ref ExistingLambdaExecutionRoleArn, '']
+
+Resources:
+  SiteContentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${SiteContentBucketNamePrefix}-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}'
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  TuningsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref TuningsTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: tuningId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: tuningId
+          KeyType: HASH
+
+  SiteLambdaRole:
+    Type: AWS::IAM::Role
+    Condition: CreateLambdaRole
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaLogsS3AndDynamo
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Logs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Sid: ReadSiteContent
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub '${SiteContentBucket.Arn}/*'
+              - Sid: DynamoTuningsCrud
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                Resource: !GetAtt TuningsTable.Arn
+
+  SiteHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Role: !If [UseExistingLambdaRole, !Ref ExistingLambdaExecutionRoleArn, !GetAtt SiteLambdaRole.Arn]
+      Timeout: 15
+      MemorySize: 256
+      Environment:
+        Variables:
+          SITE_BUCKET: !Ref SiteContentBucket
+          ENTRY_OBJECT: !Ref EntryObjectKey
+          TUNINGS_TABLE: !Ref TuningsTable
+      Code:
+        ZipFile: |
+          import os
+          import json
+          import uuid
+          import mimetypes
+          from datetime import datetime, timezone
+          from decimal import Decimal
+
+          import boto3
+          from botocore.exceptions import ClientError
+
+          s3 = boto3.client("s3")
+          dynamodb = boto3.resource("dynamodb")
+
+          SITE_BUCKET = os.environ["SITE_BUCKET"]
+          ENTRY_OBJECT = os.environ.get("ENTRY_OBJECT", "tuner.html")
+          TUNINGS_TABLE = os.environ["TUNINGS_TABLE"]
+
+          table = dynamodb.Table(TUNINGS_TABLE)
+
+          CORS_HEADERS = {
+              "Access-Control-Allow-Origin": "*",
+              "Access-Control-Allow-Headers": "content-type",
+              "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+          }
+
+          def _json_response(status_code, payload):
+              return {
+                  "statusCode": status_code,
+                  "headers": {
+                      **CORS_HEADERS,
+                      "Content-Type": "application/json; charset=utf-8",
+                  },
+                  "body": json.dumps(payload, default=_json_default),
+              }
+
+          def _json_default(value):
+              if isinstance(value, Decimal):
+                  if value % 1 == 0:
+                      return int(value)
+                  return float(value)
+              raise TypeError(f"Type not serializable: {type(value)}")
+
+          def _safe_key(raw_path):
+              if not raw_path or raw_path == "/":
+                  return ENTRY_OBJECT
+
+              path = raw_path.split("?", 1)[0].lstrip("/")
+              if ".." in path or path.startswith("/"):
+                  return None
+
+              return path if path else ENTRY_OBJECT
+
+          def _content_type(key):
+              guessed, _ = mimetypes.guess_type(key)
+              return guessed or "application/octet-stream"
+
+          def _parse_json_body(event):
+              body = event.get("body")
+              if body is None or body == "":
+                  return {}
+              return json.loads(body, parse_float=Decimal)
+
+          def _read_static_file(path):
+              key = _safe_key(path)
+              if not key:
+                  return {
+                      "statusCode": 400,
+                      "headers": {"Content-Type": "text/plain; charset=utf-8"},
+                      "body": "Invalid path",
+                  }
+
+              try:
+                  obj = s3.get_object(Bucket=SITE_BUCKET, Key=key)
+                  body = obj["Body"].read().decode("utf-8")
+                  is_html = key.endswith(".html")
+                  return {
+                      "statusCode": 200,
+                      "headers": {
+                          "Content-Type": f"{_content_type(key)}; charset=utf-8",
+                          "Cache-Control": "no-cache, no-store, must-revalidate" if is_html else "public, max-age=300",
+                      },
+                      "body": body,
+                  }
+              except ClientError as ex:
+                  code = ex.response.get("Error", {}).get("Code", "")
+                  if code in ("NoSuchKey", "404"):
+                      return {
+                          "statusCode": 404,
+                          "headers": {"Content-Type": "text/plain; charset=utf-8"},
+                          "body": "Not Found",
+                      }
+                  return {
+                      "statusCode": 500,
+                      "headers": {"Content-Type": "text/plain; charset=utf-8"},
+                      "body": "Internal Server Error",
+                  }
+
+          def _validate_tuning_payload(payload):
+              name = payload.get("name")
+              data = payload.get("data")
+              description = payload.get("description", "")
+
+              if not isinstance(name, str) or not name.strip() or len(name) > 100:
+                  return False, "'name' must be a non-empty string up to 100 chars"
+
+              if not isinstance(data, (dict, list)):
+                  return False, "'data' must be an object or array"
+
+              if not isinstance(description, str) or len(description) > 500:
+                  return False, "'description' must be a string up to 500 chars"
+
+              return True, None
+
+          def _now_iso():
+              return datetime.now(timezone.utc).isoformat()
+
+          def _list_tunings(event):
+              query = event.get("queryStringParameters") or {}
+              limit_raw = query.get("limit", "20")
+              try:
+                  limit = max(1, min(50, int(limit_raw)))
+              except ValueError:
+                  return _json_response(400, {"message": "Invalid 'limit' parameter"})
+
+              response = table.scan(Limit=limit)
+              items = response.get("Items", [])
+
+              result = {"items": items}
+              if "LastEvaluatedKey" in response:
+                  result["nextToken"] = response["LastEvaluatedKey"].get("tuningId")
+
+              return _json_response(200, result)
+
+          def _get_tuning(tuning_id):
+              response = table.get_item(Key={"tuningId": tuning_id})
+              item = response.get("Item")
+              if not item:
+                  return _json_response(404, {"message": "Tuning not found"})
+              return _json_response(200, item)
+
+          def _create_tuning(event):
+              try:
+                  payload = _parse_json_body(event)
+              except Exception:
+                  return _json_response(400, {"message": "Invalid JSON body"})
+
+              valid, error = _validate_tuning_payload(payload)
+              if not valid:
+                  return _json_response(400, {"message": error})
+
+              now = _now_iso()
+              tuning_id = str(uuid.uuid4())
+
+              item = {
+                  "tuningId": tuning_id,
+                  "name": payload["name"].strip(),
+                  "description": payload.get("description", "").strip(),
+                  "data": payload["data"],
+                  "createdAt": now,
+                  "updatedAt": now,
+                  "createdBy": "anonymous",
+              }
+
+              table.put_item(Item=item)
+              return _json_response(201, item)
+
+          def _update_tuning(event, tuning_id):
+              existing = table.get_item(Key={"tuningId": tuning_id}).get("Item")
+              if not existing:
+                  return _json_response(404, {"message": "Tuning not found"})
+
+              try:
+                  payload = _parse_json_body(event)
+              except Exception:
+                  return _json_response(400, {"message": "Invalid JSON body"})
+
+              valid, error = _validate_tuning_payload(payload)
+              if not valid:
+                  return _json_response(400, {"message": error})
+
+              updated = {
+                  **existing,
+                  "name": payload["name"].strip(),
+                  "description": payload.get("description", "").strip(),
+                  "data": payload["data"],
+                  "updatedAt": _now_iso(),
+              }
+
+              table.put_item(Item=updated)
+              return _json_response(200, updated)
+
+          def _delete_tuning(tuning_id):
+              table.delete_item(Key={"tuningId": tuning_id})
+              return _json_response(200, {"message": "Deleted", "tuningId": tuning_id})
+
+          def _handle_api(event, method, path):
+              if method == "OPTIONS":
+                  return {
+                      "statusCode": 204,
+                      "headers": CORS_HEADERS,
+                      "body": "",
+                  }
+
+              if path == "/api/tunings":
+                  if method == "GET":
+                      return _list_tunings(event)
+                  if method == "POST":
+                      return _create_tuning(event)
+
+              if path.startswith("/api/tunings/"):
+                  tuning_id = path.split("/", 3)[3] if len(path.split("/")) > 3 else ""
+                  if not tuning_id:
+                      return _json_response(400, {"message": "Missing tuning id"})
+
+                  if method == "GET":
+                      return _get_tuning(tuning_id)
+                  if method == "PUT":
+                      return _update_tuning(event, tuning_id)
+                  if method == "DELETE":
+                      return _delete_tuning(tuning_id)
+
+              return _json_response(404, {"message": "API route not found"})
+
+          def handler(event, context):
+              path = event.get("rawPath") or event.get("path") or "/"
+              request_ctx = event.get("requestContext", {}).get("http", {})
+              method = request_ctx.get("method") or event.get("httpMethod", "GET")
+
+              if path.startswith("/api/"):
+                  return _handle_api(event, method, path)
+
+              return _read_static_file(path)
+
+  SiteHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${AWS::StackName}-site-api'
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - content-type
+
+  SiteHttpIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref SiteHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt SiteHandlerFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  RootRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref SiteHttpApi
+      RouteKey: 'GET /'
+      Target: !Sub 'integrations/${SiteHttpIntegration}'
+
+  ProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref SiteHttpApi
+      RouteKey: 'GET /{proxy+}'
+      Target: !Sub 'integrations/${SiteHttpIntegration}'
+
+  ApiListTuningsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref SiteHttpApi
+      RouteKey: 'GET /api/tunings'
+      Target: !Sub 'integrations/${SiteHttpIntegration}'
+
+  ApiCreateTuningRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref SiteHttpApi
+      RouteKey: 'POST /api/tunings'
+      Target: !Sub 'integrations/${SiteHttpIntegration}'
+
+  ApiGetTuningRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref SiteHttpApi
+      RouteKey: 'GET /api/tunings/{tuningId}'
+      Target: !Sub 'integrations/${SiteHttpIntegration}'
+
+  ApiUpdateTuningRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref SiteHttpApi
+      RouteKey: 'PUT /api/tunings/{tuningId}'
+      Target: !Sub 'integrations/${SiteHttpIntegration}'
+
+  ApiDeleteTuningRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref SiteHttpApi
+      RouteKey: 'DELETE /api/tunings/{tuningId}'
+      Target: !Sub 'integrations/${SiteHttpIntegration}'
+
+  DefaultStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref SiteHttpApi
+      StageName: '$default'
+      AutoDeploy: true
+
+  AllowHttpApiInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SiteHandlerFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${SiteHttpApi}/*/*'
+
+Outputs:
+  BucketName:
+    Description: Private S3 bucket where static files are stored
+    Value: !Ref SiteContentBucket
+
+  TuningsTableNameOutput:
+    Description: DynamoDB table that stores custom tunings
+    Value: !Ref TuningsTable
+
+  ApiId:
+    Description: API Gateway HTTP API ID
+    Value: !Ref SiteHttpApi
+
+  WebsiteURL:
+    Description: HTTPS URL for site entry
+    Value: !Sub 'https://${SiteHttpApi}.execute-api.${AWS::Region}.amazonaws.com/'
+
+  ApiBaseURL:
+    Description: HTTPS API base URL for tunings endpoints
+    Value: !Sub 'https://${SiteHttpApi}.execute-api.${AWS::Region}.amazonaws.com/api/tunings'
