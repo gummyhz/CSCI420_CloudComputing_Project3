@@ -1,0 +1,1547 @@
+<!DOCTYPE html>
+<html>
+<!-- CTRL + SHIFT + I -->
+
+<head>
+    <title>Web Audio Tuner</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            font-size: 4em;
+        }
+
+        h3 {
+            font-size: 2em;
+        }
+
+
+        :root {
+            /* W&M Official Colors */
+            /* Primary */
+            --wm-green: #004E38;
+            --wm-gold: #866F45;
+            --wm-silver: #D8DCDB;
+            --white: #FFFFFF;
+            /* Secondary Greens */
+            --dark-green: #00231B;
+            --griffin-green: #28463D;
+            --patina: #76A190;
+            --sage: #B8DDB1;
+            --moss: #789D4A;
+            /* Spirit Color Palette */
+            /* wm-green, wm-silver, white as well */
+            --wm-spirit-gold: #FDB714;
+            /* Tertiary Color Palette */
+            --midnight-blue: #0D3E4A;
+            --marine-blue: #247B8C;
+            --slate-blue: #7399C1;
+            --royal-purple: #673E65;
+            --brick-red: #964A37;
+        }
+
+        body {
+            margin: 1em;
+            font-family: 'Times New Roman', Times, serif, sans-serif;
+            font-size: 1rem;
+            text-align: center;
+            background: var(--wm-silver);
+            color: var(--wm-green);
+        }
+
+        hr {
+            color: var(--wm-gold);
+        }
+
+        ul {
+            padding-left: 2em;
+            padding-right: 2em;
+        }
+
+        #start {
+            margin-top: 1em;
+            padding: .5rem;
+            font-family: inherit;
+            font-size: inherit;
+            background-color: var(--wm-gold);
+            color: var(--wm-silver);
+            box-shadow: inset 0px 0px 4px rgba(0, 0, 0, 0.5);
+            z-index: 1;
+        }
+
+        #note {
+            font-size: 2rem;
+            margin-top: 20px;
+            color: var(--griffin-green);
+        }
+
+        #freq {
+            font-size: 1.5rem;
+            color: var(--dark-green);
+        }
+
+        .meter {
+            width: 300px;
+            height: 10px;
+            background: var(--dark-green);
+            margin: 20px auto;
+            position: relative;
+        }
+
+        #needle {
+            width: 4px;
+            height: 20px;
+            background: var(--moss);
+            position: absolute;
+            left: 50%;
+            top: -5px;
+            transition: left 0.1s;
+        }
+
+        /* Dropdown Button */
+        .dropbtn {
+            border-color: var(--griffin-green);
+            background-color: var(--wm-silver);
+            color: var(--griffin-green);
+            padding: .5rem;
+            margin: .5rem;
+            font-size: 1rem;
+            font-family: inherit;
+            cursor: pointer;
+            font-size: inherit;
+        }
+
+        /* Dropdown button on hover & focus */
+        .dropbtn:hover,
+        .dropbtn:focus {
+            background-color: rgb(from var(--moss) r g b / .25);
+        }
+
+        /* The container <div> - needed to position the dropdown content */
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        /* Dropdown Content (Hidden by Default) */
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: var(--wm-silver);
+            min-width: 160px;
+            box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+            z-index: 1;
+        }
+
+        /* Links inside the dropdown */
+        .dropdown-content a {
+            color: black;
+            padding: 1rem;
+            text-decoration: none;
+            display: block;
+        }
+
+        /* Change color of dropdown links on hover */
+        .dropdown-content a:hover {
+            background-color: rgb(from var(--moss) r g b / .25);
+        }
+
+        /* Show the dropdown menu (use JS to add this class to the .dropdown-content container when the user clicks on the dropdown button) */
+        .show {
+            display: block;
+        }
+
+        .methods-body {
+            padding: 1rem;
+            line-height: 1.5;
+        }
+
+        .tml-display {
+            margin: 1rem;
+        }
+
+        math {
+            font-family: "Latin Modern Math", "Cambria Math", serif;
+            font-size: 1.2em;
+            /* Math symbols often look smaller than text */
+        }
+
+        #cloud-circle {
+            width: 500px;
+            height: 275px;
+            border-radius: 50%;
+            filter: url(#filter);
+            /* box-shadow: 0px 0px 60px 0px #fff; */
+            /* background: radial-gradient(ellipse at center, #fff 0%, rgba(255,255,255,0.6) 50%, transparent 100%); */
+            background: radial-gradient(ellipse at center,
+                    #D8DCDB 0%,
+                    #D8DCDB 15%,
+                    rgba(216, 220, 219, 0.7) 35%,
+                    rgba(216, 220, 219, 0.2) 55%,
+                    transparent 70%);
+
+            position: absolute;
+            margin: auto;
+            z-index: 0;
+        }
+
+        #cloud-container {
+            position: relative;
+            width: 500px;
+            height: 275px;
+            margin: 0 auto;
+            margin-top: 2em;
+            margin-bottom: 2em;
+            padding-top: 50px;
+            padding-bottom: 300px;
+        }
+
+        #cloud-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1;
+        }
+
+        canvas {
+            width: 100%;
+            height: 250px;
+            display: block;
+            margin: 20px 0;
+            padding: 1rem;
+            background-color: var(--wm-silver);
+            border: 1px solid var(--wm-gold);
+        }
+
+        #custom-tuning-panel {
+            max-width: 900px;
+            margin: 0.75rem auto;
+            text-align: left;
+            border: 1px solid var(--wm-gold);
+            padding: 0.75rem;
+            background: rgba(255, 255, 255, 0.45);
+        }
+
+        .panel-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        #custom-tuning-panel label {
+            font-size: 0.9rem;
+            display: block;
+            margin-bottom: 0.2rem;
+        }
+
+        #custom-tuning-panel input,
+        #custom-tuning-panel textarea,
+        #custom-tuning-panel button {
+            width: 100%;
+            font-family: inherit;
+            font-size: 0.95rem;
+            padding: 0.35rem;
+            border: 1px solid var(--griffin-green);
+        }
+
+        #custom-tuning-panel textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .panel-buttons {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-top: 0.5rem;
+        }
+
+        .panel-buttons button {
+            width: auto;
+            cursor: pointer;
+            background: var(--wm-green);
+            color: var(--wm-silver);
+            border: none;
+            padding: 0.4rem 0.7rem;
+        }
+
+        #custom-status {
+            min-height: 1rem;
+            margin-top: 0.4rem;
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 700px) {
+            .panel-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <!-- <script src="https://cdn.jsdelivr.net/npm/fft.js@4.0.4/dist/fft.js"></script> -->
+</head>
+
+<body>
+    <h1>Scalable</h1>
+    <h3>A sound tuner and visualizer</h3>
+    <br>
+    <hr>
+
+    <div id="tuner">
+        <br>
+        <div style="display: block;">
+            <h3>Tuner</h3>
+        </div>
+
+        <button id="start">Start Microphone</button>
+        <br>
+
+
+        <div id="cloud-container">
+            <div id="cloud-center">
+                <div id="note">Note: --</div>
+                <div id="freq">0.0 Hz</div>
+            </div>
+            <div id="cloud-circle"></div>
+            <svg width="0" height="0">
+                <!-- <filter id="filter">
+            <feTurbulence type="fractalNoise" baseFrequency=".01" numOctaves="10" />
+            <feDisplacementMap in="SourceGraphic" scale="180" />
+            </filter> -->
+                <filter id="filter" x="-50%" y="-50%" width="300%" height="300%">
+                    <feTurbulence type="fractalNoise" baseFrequency=".01" numOctaves="10" result="noise" />
+                    <feDisplacementMap in="SourceGraphic" in2="noise" scale="180" result="displaced" />
+                    <feGaussianBlur in="displaced" stdDeviation="20" result="blurred" />
+                    <feMerge>
+                        <feMergeNode in="blurred" />
+                        <feMergeNode in="displaced" />
+                    </feMerge>
+                </filter>
+            </svg>
+        </div>
+
+        <div class="meter">
+            <div id="needle"></div>
+        </div>
+
+        <div class="dropdown" id="scale-dropdown">
+            <label for="scale-select">Scale used:</label>
+            <select class="dropbtn" id="scale-select">
+                <option value="12-TET" selected>12-TET (12 tone equal temperament)</option>
+                <option value="Pelog (just)">Pelog (just)</option>
+                <option value="Slendro (Harrison/Yogyakarta)">Slendro (Harrison/Yogyakarta)</option>
+                <option value="Slendro (Surakata)">Slendro (Surakata)</option>
+            </select>
+        </div>
+
+        <div id="custom-tuning-panel">
+            <strong>Custom Tunings (Absolute Frequencies)</strong>
+            <div class="panel-row">
+                <div>
+                    <label for="api-base-url">API base URL</label>
+                    <input id="api-base-url" type="text" placeholder="https://...execute-api.../api/tunings">
+                </div>
+                <div>
+                    <label for="reference-hz">Reference Hz (optional)</label>
+                    <input id="reference-hz" type="number" min="1" step="0.01" placeholder="440">
+                </div>
+            </div>
+            <div class="panel-row">
+                <div>
+                    <label for="custom-tuning-name">Tuning name</label>
+                    <input id="custom-tuning-name" type="text" maxlength="100" placeholder="My custom tuning">
+                </div>
+                <div>
+                    <label for="custom-tuning-description">Description (optional)</label>
+                    <input id="custom-tuning-description" type="text" maxlength="500" placeholder="Notes">
+                </div>
+            </div>
+            <label for="custom-note-lines">Notes and frequencies (one per line: Note,Hz)</label>
+            <textarea id="custom-note-lines" placeholder="A4,440\nE5,659.25\nD5,587.33"></textarea>
+            <div class="panel-buttons">
+                <button id="save-api-url-btn" type="button">Save API URL</button>
+                <button id="refresh-custom-btn" type="button">Refresh Tunings</button>
+                <button id="save-custom-btn" type="button">Save New Tuning</button>
+                <button id="delete-custom-btn" type="button">Delete Selected Tuning</button>
+            </div>
+            <div id="custom-status"></div>
+        </div>
+
+
+        <br><br>
+    </div>
+    <hr>
+    <br>
+    <h3>Methods</h3>
+    <div class="methods-body">
+        We use the YIN algorithm to find the pitch of input sound.
+        The following section describes the Yin method treatment of sound, in a way to directly reflect our situation.
+        Some parts not explicitly spelled out in the paper are elaborated on.
+
+        We will describe and implement the methods from <br><br>
+        A. de Cheveigné and H. Kawahara, “YIN, a fundamental frequency estimator for speech and music,” The Journal of
+        the Acoustical Society of America, vol. 111, no. 4, pp. 1917-1930, Apr. 2002, doi: <a
+            href="https://doi.org/10.1121/1.1458024">https://doi.org/10.1121/1.1458024</a>.
+        <br><br>
+        The input signal, obtained from the Web Audio API,
+        comes in as a discrete time-series array of amplitudes.
+
+        <canvas id="amp-canvas"></canvas>
+
+
+        <h4>Step 1: Autocorrelation</h4>
+        We use the following autocorrelation function
+        to quantify the similarity between a signal
+        and itself delayed by some lag \(\tau\).
+
+        $$ r_{t} ( \tau ) = \sum_{j = t + 1}^{t + W - \tau} x_{j} x_{j + \tau}$$
+
+
+        Here, \(r_t(\tau)\) is the autocorrelation function
+        at the time intex \(t\), with a lag of \(\tau\).
+        \(W\) is the integration window size, or the time frame in consideration.
+        We subtract \(\tau\) from the upper summation bound to lessen the effect of larger lag sizes,
+        with the assumption that the
+        fundemental frequency is closer to the origin point \(t\).
+        <br>
+        <br>
+        The Weiner-Khinchin theorem (in the discrete time case) allows us to compute the autocorrelation funtion using a
+        Fourier Transform.
+        <br>
+
+        To get to this new and convenient definition of the autocorrelation function,
+        we can start by taking the Fourier
+        transform \(\mathcal{F}\{r(\tau)\}(\xi)\) of \(r(\tau)\).
+        We will use the continuous forms of functions to show these conversions.
+        <br>
+        A continuous version of our autocorrelation is
+
+        $$
+        r(\tau) = \int_{-\infty}^{\infty} x(t)x(t + \tau)dt
+        $$
+
+        and its Fourier transform is
+
+        $$
+        \mathcal{F}\{r(\tau)\}(\xi) = \int_{-\infty}^{\infty}r(\tau)e^{-i2\pi\xi\tau}d\tau
+        $$
+
+
+        Let's substitue in \(r(\tau)\)
+        and swap the order of integration by Fubini's theorem.
+
+        $$
+        \begin{align*}
+        \mathcal{F}\{r(\tau)\}(\xi) &= \int_{-\infty}^{\infty}\left[\int_{-\infty}^{\infty} x(t)x(t +
+        \tau)dt\right]e^{-i2\pi\xi\tau}d\tau \\
+        &= \int_{-\infty}^{\infty}\int_{-\infty}^{\infty} x(t)x(t + \tau)e^{-i2\pi\xi\tau}d\tau dt \\
+        &= \int_{-\infty}^{\infty}x(t)\int_{-\infty}^{\infty} x(t + \tau)e^{-i2\pi\xi\tau}d\tau dt
+        \end{align*}
+        $$
+
+
+
+        If we define and substitue in \(u=t+\tau\),
+        we can see that the inner integral can be represented as a Fourier transform
+        of \(x\) multiplied by an exponent.
+
+        $$
+        \begin{align*}
+        \int_{-\infty}^{\infty} x(t + \tau)e^{-i2\pi\xi\tau}d\tau &= \int_{-\infty}^{\infty} x(u)e^{-i2\pi\xi(u-t)}du \\
+        &= e^{i2\pi\xi t}\int_{-\infty}^{\infty} x(u)e^{-i2\pi\xi u}du \\
+        &= e^{i2\pi\xi t}\mathcal{F}\{x\}(\xi)
+        \end{align*}
+        $$
+
+
+        Subsituting this back in, we get
+
+        $$
+        \begin{align*}
+        \mathcal{F}\{r(\tau)\}(\xi) &= \int_{-\infty}^{\infty} x(t)e^{i2\pi\xi t}\mathcal{F}\{x\}(\xi)dt \\
+        &= \mathcal{F}\{x\}(\xi)\int_{-\infty}^{\infty} x(t)e^{i2\pi\xi t}dt
+        \end{align*}
+        $$
+
+
+
+        We may notice that
+
+        $$
+        \int_{-\infty}^{\infty}x(t)e^{i2\pi\xi t}dt = \mathcal{F}\{x\}(-\xi)
+        $$
+
+        giving us
+
+        $$
+        \mathcal{F}\{r(\tau)\}(\xi) = \mathcal{F}\{x\}(\xi) \mathcal{F}\{x\}(-\xi)
+        $$
+
+        And because for real \(x\),
+        the Fourier transform at a negated frequency
+        is the complex conjugate of the Fourier transform at the
+        non-negated frequency, we get
+
+        $$
+        \mathcal{F}\{x\}(-\xi) = \overline{\mathcal{F}\{x\}(\xi)}
+        $$
+
+        Therefore,
+
+        $$
+        \begin{align*}
+        \mathcal{F}\{r(\tau)\}(\xi) &= \mathcal{F}\{x\}(\xi) \mathcal{F}\{x\}(-\xi) \\
+        &= \mathcal{F}\{x\}(\xi) \overline{\mathcal{F}\{x\}(\xi)} \\
+        &= | \mathcal{F}\{x\}(\xi) |^2
+        \end{align*}
+        $$
+
+
+        Using the inverse Fourier transform, we can get the autocorrelation back out, this time with a formulation
+        faster to compute.
+
+        $$
+        \begin{align*}
+        r(\tau) &= \mathcal{F}^{-1}\{r(\tau)\}(\mathcal{F}\{r(\tau)\}(\xi)) \\
+        &= \mathcal{F}^{-1}\{r(\tau)\}(| \mathcal{F}\{x\}(\xi) |^2)
+        \end{align*}
+        $$
+
+        We can compute this with the discrete fourier transform
+
+        $$
+        \mathcal{F}\{x\}_k = \sum_{j=t+1}^{t+W}x_j \cdot e^{-i2\pi\frac{k}{W}j}
+        $$
+
+        and the inverse discrete fourier transform
+
+        $$
+        x_j = \frac{1}{N}\sum_{k=0}^{W-1}\mathcal{F}\{x\}_k \cdot e^{i2\pi\frac{k}{N}j}
+        $$
+
+
+        <canvas id="autocorr-canvas"></canvas>
+        <br><br>
+        <h4>Step 2: Difference Function</h4>
+        Consider this difference function, used to find an unknown period:
+
+        $$
+        d_t(\tau) = \sum_{j=1}^{W}(x_j - x_{j-\tau})^2
+        $$
+
+        When \(d(\tau)=0\), we have a tau which is a multiple of the period.
+        <br><br>
+        This can be expanded,
+
+        $$
+        d_t(\tau) = \sum_{j=1}^{W}(x_j^2 + x_{j-\tau}^2 -2x_jx_{j-\tau})^2
+        $$
+
+        and we can substitute in the autocorrelation function:
+
+        $$
+        d_t(\tau) = r_t(0) + r_{t+\tau}(0) - 2r_t(\tau)
+        $$
+
+        This is great! We can find the period, and from the period find the frequency.
+
+        <canvas id="diff-canvas"></canvas>
+        <br><br>
+        <h4>Step 3: Cumulative Mean Normalized Difference Function</h4>
+        However, there are two issues.
+        <ul style="text-align: left;">
+            <li>When the lag (\(\tau\)) is zero, this function will also be zero.</li>
+            <li>Period signals with a harmonic strucutre causing multiple dips in the
+                difference function could create dips that are not indicative of the period directly.
+                <ul>
+                    <li>For example, a string playing 440 Hz (A4 in 12 tone equal temperament tuning) may
+                        produce a frequency at 440 Hz as well as the second harmonic, 880 Hz.
+                        The period of the 440 Hz frequency is \(T_0 = \frac{1}{440}\),
+                        and the period at 880 Hz is \(\frac{1}{880} = \frac{1}{2}\cdot\frac{1}{440} = \frac{1}{2}T_0\).
+                        We will see dips at the period of our "main" tone, as well as half that for the second harmonic.
+                    </li>
+                </ul>
+            </li>
+        </ul>
+        <br>
+
+        To address this, consider the "cumulative mean normalized difference function":
+
+        $$
+        d_t'(\tau) =
+        \begin{cases}
+        1, & \text{if } \tau = 0 \\
+        d_t(\tau) / \left[(1/\tau)\sum_{j=1}^{\tau}d_t(j)\right] & \text{otherwise}
+        \end{cases}
+        $$
+
+        We directly address the \(\tau=0\) case with an exception,
+        and divide each difference by the mean difference for \(\tau\) from 0 to the current \(\tau\).
+        This division normalizes each calculated difference to the mean difference accumulated so far,
+        they are only less than 1 when they are less than the running average.
+
+        <br><br>
+
+        <h4>Step 4: Absolute Threshold</h4>
+        Another issue which could cause inacuraccies is subharmonic errors.
+        They occur at lower freqencies than the fundemental frequency of the sound,
+        and could have a dip which does not indicate the period of our fundemental frequency.
+
+        <br><br>
+        To address this, we will take the smallest \(\tau\)
+        where \(d_t'(\tau) \lt \text{THRESHOLD}\) for some THRESHOLD such as 0.1 <br><br>
+        <canvas id="CMND-canvas"></canvas>
+        <br><br>
+
+
+        <canvas id="threshold-canvas"></canvas>
+        <!-- <br><br> -->
+
+        <h4>Step 5: Parabolic Interpolation</h4>
+        For each local minima \(\tau\), we will fit a parabola onto \(d_t(\tau-1), d_t(\tau), d_t(\tau+1)\)
+        using the Lagrange Interpolation Formula
+        $$
+        P(x) = d_t(\tau-1) \frac{(x - \tau)(x - (\tau+1))}{((\tau-1) - \tau)((\tau-1) - (\tau+1))}
+        + d_t(\tau) \frac{(x - (\tau-1))(x - (\tau+1))}{(\tau - (\tau-1))(\tau - (\tau+1))}
+        + d_t(\tau+1) \frac{(x - (\tau-1))(x - \tau)}{((\tau+1) - (\tau-1))((\tau+1) - \tau)}
+        $$
+        <br>
+        Then, we can take the minimum of this parabola to get a period estimate \(\hat{T}\),
+        <br>
+        and by taking the
+        reciprocal, a frequency estimate: \(\hat{\xi} = \frac{1}{\hat{T}}\).
+        <canvas id="parabola-canvas"></canvas>
+        <br><br>
+
+        <h4>Step 6: Best Local Estimate</h4>
+        To take into account how our window being considered could start at different parts of the period, causing
+        differing results, we may take an initial estimate, then repeat our entire estimation process in a local
+        window around that initial estimate.
+        <br><br>
+        For each time index \(t\), consider the time frame
+        \(\theta \in [t-T_{\text{max}/2}, t+T_{\text{max}/2}]\).
+        <br>
+
+        Find the minimum of \(d_{\theta}'(T_{\theta}) \) and take \(T_{\theta}\) as an initial period estimate for
+        frame \(t\).
+        <br>
+        Then, re-estimate the frequency using the previous steps, this time only considering the range \([T_{\theta}
+        -
+        .2\cdot T_{\theta}, T_{\theta} + .2\cdot T_{\theta}]\)
+
+        <canvas id="freq-canvas"></canvas>
+
+
+    </div>
+
+
+
+
+    <script type="module">
+        import FFT from 'https://cdn.skypack.dev/fft.js';
+        window.FFT = FFT;
+    </script>
+    <script>
+        const startButton = document.getElementById('start');
+        const scaleSelect = document.getElementById('scale-select');
+        const apiBaseUrlInput = document.getElementById('api-base-url');
+        const referenceHzInput = document.getElementById('reference-hz');
+        const customTuningNameInput = document.getElementById('custom-tuning-name');
+        const customTuningDescriptionInput = document.getElementById('custom-tuning-description');
+        const customNoteLinesInput = document.getElementById('custom-note-lines');
+        const customStatus = document.getElementById('custom-status');
+
+        const FFT_SIZE = 2048;
+        const API_BASE_KEY = 'tunerApiBaseUrl';
+
+        let audioCtx;
+        let analyser;
+        let source;
+        let buffer;
+        let tdarray;
+        let fdarray;
+        let bufferLength;
+        let customTunings = [];
+
+
+        const defaultScales = {
+            "12-TET": {
+                notes: ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"],
+                cents: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100],
+                octave: 1200
+            },
+            "Pelog (just)": {
+                notes: ["bem", "gulu", "dada", "pelog", "lima", "nem", "barang"],
+                cents: [0, 128, 267, 563, 702, 814, 979],
+                octave: 1214  // stretched octave from the page
+            },
+            "Slendro (Harrison/Yogyakarta)": {
+                notes: ["1", "2", "3", "5", "6"],
+                cents: [0, 204, 408, 702, 906],  // [8/7, 8/7, 7/6, 8/7, 7/6] in cents: ~231, 231, 267, 231, 267
+                octave: 1200
+            },
+            "Slendro (Surakata)": {
+                notes: ["1", "2", "3", "5", "6"],
+                cents: [0, 231, 462, 702, 933],  // [8/7, 8/7, 147/128, 8/7, 7/6]
+                octave: 1200
+            }
+        };
+
+        let currentScale = defaultScales["12-TET"];
+
+        function setStatus(message, isError = false) {
+            customStatus.textContent = message;
+            customStatus.style.color = isError ? '#964A37' : '#00231B';
+        }
+
+        function getApiBase() {
+            return (apiBaseUrlInput.value || '').trim().replace(/\/$/, '');
+        }
+
+        function parseAbsoluteNotes(text) {
+            const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+            if (lines.length === 0) throw new Error('Provide at least one Note,Hz line.');
+
+            return lines.map((line) => {
+                const parts = line.split(',').map(x => x.trim());
+                if (parts.length < 2 || !parts[0]) {
+                    throw new Error(`Invalid line: ${line}`);
+                }
+
+                const frequency = Number(parts[1]);
+                if (!Number.isFinite(frequency) || frequency <= 0) {
+                    throw new Error(`Invalid frequency in line: ${line}`);
+                }
+
+                return { note: parts[0], frequency };
+            });
+        }
+
+        async function apiRequest(path = '', options = {}) {
+            const base = getApiBase();
+            if (!base) throw new Error('Set API base URL first.');
+
+            const response = await fetch(`${base}${path}`, {
+                headers: { 'Content-Type': 'application/json' },
+                ...options
+            });
+
+            const text = await response.text();
+            let data = {};
+            try { data = text ? JSON.parse(text) : {}; } catch { data = {}; }
+
+            if (!response.ok) {
+                throw new Error(data.message || `Request failed (${response.status})`);
+            }
+
+            return data;
+        }
+
+        function rebuildScaleSelect() {
+            const previousValue = scaleSelect.value;
+            scaleSelect.innerHTML = '';
+
+            Object.keys(defaultScales).forEach((name) => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                scaleSelect.appendChild(option);
+            });
+
+            if (customTunings.length > 0) {
+                const group = document.createElement('optgroup');
+                group.label = 'Custom (absolute frequencies)';
+
+                customTunings.forEach((tuning) => {
+                    const option = document.createElement('option');
+                    option.value = `custom:${tuning.tuningId}`;
+                    option.textContent = tuning.name;
+                    group.appendChild(option);
+                });
+
+                scaleSelect.appendChild(group);
+            }
+
+            if (scaleSelect.querySelector(`option[value="${previousValue}"]`)) {
+                scaleSelect.value = previousValue;
+            }
+
+            applySelectedScale();
+        }
+
+        function applySelectedScale() {
+            const value = scaleSelect.value;
+            if (value.startsWith('custom:')) {
+                const tuningId = value.slice('custom:'.length);
+                const tuning = customTunings.find((x) => x.tuningId === tuningId);
+                const notes = tuning && tuning.data && Array.isArray(tuning.data.notes) ? tuning.data.notes : [];
+                currentScale = { kind: 'absolute', notes };
+            } else {
+                currentScale = defaultScales[value] || defaultScales['12-TET'];
+            }
+        }
+
+        async function refreshCustomTunings() {
+            try {
+                const data = await apiRequest();
+                customTunings = Array.isArray(data.items) ? data.items : [];
+                rebuildScaleSelect();
+                setStatus(`Loaded ${customTunings.length} custom tuning(s).`);
+            } catch (err) {
+                setStatus(`Refresh failed: ${err.message}`, true);
+            }
+        }
+
+        async function saveCustomTuning() {
+            try {
+                const name = customTuningNameInput.value.trim();
+                if (!name) throw new Error('Tuning name is required.');
+
+                const notes = parseAbsoluteNotes(customNoteLinesInput.value);
+                const referenceHz = referenceHzInput.value ? Number(referenceHzInput.value) : null;
+                if (referenceHzInput.value && (!Number.isFinite(referenceHz) || referenceHz <= 0)) {
+                    throw new Error('Reference Hz must be a positive number.');
+                }
+
+                const payload = {
+                    name,
+                    description: customTuningDescriptionInput.value.trim(),
+                    data: {
+                        type: 'absolute-frequency',
+                        notes,
+                        ...(referenceHz ? { referenceHz } : {})
+                    }
+                };
+
+                await apiRequest('', { method: 'POST', body: JSON.stringify(payload) });
+
+                customTuningNameInput.value = '';
+                customTuningDescriptionInput.value = '';
+                customNoteLinesInput.value = '';
+                referenceHzInput.value = '';
+
+                await refreshCustomTunings();
+                setStatus('Custom tuning saved.');
+            } catch (err) {
+                setStatus(`Save failed: ${err.message}`, true);
+            }
+        }
+
+        async function deleteSelectedCustomTuning() {
+            const value = scaleSelect.value;
+            if (!value.startsWith('custom:')) {
+                setStatus('Select a custom tuning to delete.', true);
+                return;
+            }
+
+            const tuningId = value.slice('custom:'.length);
+            try {
+                await apiRequest(`/${encodeURIComponent(tuningId)}`, { method: 'DELETE' });
+                await refreshCustomTunings();
+                setStatus('Custom tuning deleted.');
+            } catch (err) {
+                setStatus(`Delete failed: ${err.message}`, true);
+            }
+        }
+
+        scaleSelect.addEventListener('change', applySelectedScale);
+        document.getElementById('save-api-url-btn').addEventListener('click', () => {
+            const base = getApiBase();
+            if (!base) {
+                setStatus('Enter an API base URL first.', true);
+                return;
+            }
+            localStorage.setItem(API_BASE_KEY, base);
+            setStatus('API base URL saved.');
+        });
+        document.getElementById('refresh-custom-btn').addEventListener('click', refreshCustomTunings);
+        document.getElementById('save-custom-btn').addEventListener('click', saveCustomTuning);
+        document.getElementById('delete-custom-btn').addEventListener('click', deleteSelectedCustomTuning);
+
+        const storedApiBase = localStorage.getItem(API_BASE_KEY);
+        if (storedApiBase) {
+            apiBaseUrlInput.value = storedApiBase;
+        }
+
+        // Activate microphone
+        document.getElementById('start').onclick = async () => {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const source = audioCtx.createMediaStreamSource(stream);
+
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 2048;
+            analyser.smoothingTimeConstant = 0.8;
+
+            bufferLength = analyser.frequencyBinCount;
+            tdarray = new Float32Array(analyser.fftSize);
+            fdarray = new Float32Array(analyser.frequencyBinCount);
+            buffer = new Float32Array(analyser.fftSize);
+
+            source.connect(analyser);
+            startButton.style.display = 'none';
+            update();
+            draw();
+        };
+
+        function draw() {
+            requestAnimationFrame(draw);
+            analyser.getFloatTimeDomainData(tdarray);
+            analyser.getFloatFrequencyData(fdarray);
+
+            // Compute all intermediates once
+            const autocorr = computeAutocorr(tdarray);       // reuse across steps
+            const diff = computeDiff(autocorr);
+            const cmnd = computeCMND(diff);
+            const tau = findThreshold(cmnd, 0.1);
+            const tauFine = parabolicRefine(cmnd, tau);
+
+            // Then draw each canvas with already-computed data
+            drawAmpTime(tdarray); // input from analyser
+            drawAutocorr(autocorr);
+            drawDiff(diff);
+            drawCMND(cmnd);
+            drawThreshold(cmnd, tau);
+            drawParabola(cmnd, tauFine);
+            drawFreqTime(fdarray); // using analyser's built in frequency domain data
+        }
+
+        // Amplitudes from analyser
+        function drawAmpTime() {
+            const canvas = document.getElementById('amp-canvas');
+            const ctx = canvas.getContext('2d');
+            const WIDTH = canvas.width = canvas.clientWidth;
+            const HEIGHT = canvas.height = canvas.clientHeight;
+
+            const margin = 40;
+            const plotWidth = WIDTH - margin;
+            const plotHeight = HEIGHT - margin;
+
+            ctx.fillStyle = "#D8DCDB"; // --wm-silver
+            ctx.fillRect(0, 0, WIDTH, HEIGHT);
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = "#004E38"; // --wm-green
+            ctx.beginPath();
+
+            const sliceWidth = plotWidth / tdarray.length;
+            let x = margin;
+
+            for (let i = 0; i < tdarray.length; i++) {
+                const v = tdarray[i];
+                const y = ((1 - v) / 2) * plotHeight + margin / 2;
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+                x += sliceWidth;
+            }
+            // ctx.lineTo(WIDTH, HEIGHT / 2);
+            ctx.stroke();
+            drawAxes(ctx, WIDTH, HEIGHT, "Time", "Amp");
+        };
+
+        // Frequencies from analyser
+        function drawFreqTime() {
+            const canvas = document.getElementById('freq-canvas');
+            const ctx = canvas.getContext('2d');
+            const WIDTH = canvas.width = canvas.clientWidth;
+            const HEIGHT = canvas.height = canvas.clientHeight;
+
+            ctx.fillStyle = "#D8DCDB";
+            ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+            const margin = 40;
+            const plotWidth = WIDTH - margin;
+            const plotHeight = HEIGHT - margin;
+
+            const barWidth = (WIDTH / fdarray.length) * 2.5;
+            let x = margin; // Start after Y-axis
+
+            // Start i at 2 to ignore the DC offset/low rumble at 0Hz
+            for (let i = 2; i < fdarray.length; i++) {
+                const barHeight = ((fdarray[i] + 160) / 160) * plotHeight; // map -160..0 dB to 0..1
+                ctx.fillStyle = "#004E38";
+                ctx.fillRect(x, HEIGHT - barHeight - 20, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+
+            drawAxes(ctx, WIDTH, HEIGHT, "Hz", "Amp");
+        }
+
+        function drawAxes(ctx, width, height, labelX, labelY) {
+            ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+            ctx.fillStyle = "#00231B";
+            ctx.font = "bold 12px 'Times New Roman'";
+            ctx.lineWidth = 1;
+
+            // Y-axis
+            ctx.beginPath();
+            ctx.moveTo(30, 0);
+            ctx.lineTo(30, height - 20); // Stop at X-axis
+            ctx.stroke();
+            ctx.fillText(labelY, 3, 15);
+
+            // X-axis
+            ctx.beginPath();
+            ctx.moveTo(30, height - 20);
+            ctx.lineTo(width, height - 20);
+            ctx.stroke();
+            ctx.fillText(labelX, width - 40, height - 5);
+        }
+
+        function drawAxesTicks(ctx, width, height, margin, labelX, labelY, xTicks, yTicks) {
+            ctx.strokeStyle = "rgba(0,0,0,0.5)";
+            ctx.fillStyle = "#00231B";
+            ctx.font = "bold 11px 'Times New Roman'";
+            ctx.lineWidth = 1;
+
+            const plotW = width - margin;
+            const plotH = height - margin;
+
+            // Y-axis
+            ctx.beginPath();
+            ctx.moveTo(margin, 0);
+            ctx.lineTo(margin, plotH);
+            ctx.stroke();
+            ctx.fillText(labelY, 3, 12);
+
+            // X-axis
+            ctx.beginPath();
+            ctx.moveTo(margin, plotH);
+            ctx.lineTo(width, plotH);
+            ctx.stroke();
+            ctx.fillText(labelX, width - 35, height - 4);
+
+            // X tick marks: array of {value, label} where value is 0..1 (fraction of plot width)
+            for (const tick of xTicks) {
+                const x = margin + tick.frac * plotW;
+                ctx.beginPath();
+                ctx.moveTo(x, plotH);
+                ctx.lineTo(x, plotH + 5);
+                ctx.stroke();
+                ctx.fillText(tick.label, x - 10, height - 4);
+            }
+
+            // Y tick marks: array of {frac, label} where frac is 0 (bottom) to 1 (top)
+            for (const tick of yTicks) {
+                const y = plotH - tick.frac * plotH;
+                ctx.beginPath();
+                ctx.moveTo(margin, y);
+                ctx.lineTo(margin - 5, y);
+                ctx.stroke();
+                ctx.fillText(tick.label, 1, y + 4);
+            }
+        }
+
+
+
+        function nextPow2(n) {
+            return Math.pow(2, Math.ceil(Math.log2(n)));
+        }
+
+        // Compute all intermediates once
+        function computeAutocorr(tdarray) {
+            // Zero-pad to avoid circular correlation: length must be power of 2
+            const N = nextPow2(2 * tdarray.length);
+            const f = new FFT(N);
+
+            const out = f.createComplexArray();
+            const padded = new Float32Array(N);
+            padded.set(tdarray);
+
+            f.realTransform(out, padded);         // forward FFT → complex [re, im, re, im, ...]
+
+            // Power spectrum: multiply each bin by its conjugate
+            for (let i = 0; i < out.length; i += 2) {
+                const re = out[i], im = out[i + 1];
+                out[i] = re * re + im * im;   // |X|²
+                out[i + 1] = 0;
+            }
+            const complexAutocorr = f.createComplexArray();
+            f.completeSpectrum(out);
+            f.inverseTransform(complexAutocorr, out);
+
+            const autocorr = new Float32Array(N);
+            for (let i = 0; i < N; i++) {
+                autocorr[i] = complexAutocorr[i * 2];
+            }
+            return autocorr;
+        }
+        function computeDiff(autocorr) {
+            const N = autocorr.length;
+            const diff = new Float32Array(N);
+            const r0 = autocorr[0];
+            diff[0] = 0;
+            for (let tau = 1; tau < N; tau++) {
+                diff[tau] = (2 * r0) - (2 * autocorr[tau]);
+            }
+            return diff;
+        }
+        function computeCMND(diff) {
+            const N = diff.length;
+            const cmnd = new Float32Array(N);
+            cmnd[0] = 1;
+            let runningSum = 0;
+            for (let tau = 1; tau < N; tau++) {
+                runningSum = runningSum + diff[tau];
+
+                if (runningSum === 0) {
+                    cmnd[tau] = 1;
+                } else {
+                    cmnd[tau] = diff[tau] / (runningSum / tau);
+                }
+
+            }
+
+            return cmnd;
+        }
+        /**
+ * Step 4: Find the first local minimum below the threshold.
+ * If no dip is below the threshold, it falls back to the global minimum.
+ */
+        function findThreshold(cmnd, threshold) {
+            let tau = 2; // Start after tau=0/1 to avoid the initial peak
+            const N = cmnd.length;
+
+            // 1. Search for the first value that drops below the threshold
+            while (tau < N) {
+                if (cmnd[tau] < threshold) {
+                    // 2. Once below threshold, keep going until it starts rising (finding the local minimum)
+                    while (tau + 1 < N && cmnd[tau + 1] < cmnd[tau]) {
+                        tau++;
+                    }
+                    return tau;
+                }
+                tau++;
+            }
+
+            // 3. Fallback: If nothing was below threshold, find the absolute global minimum
+            let minTau = -1;
+            let minVal = Infinity;
+            for (let i = 2; i < N; i++) {
+                if (cmnd[i] < minVal) {
+                    minVal = cmnd[i];
+                    minTau = i;
+                }
+            }
+            return minTau;
+        }
+
+        /**
+         * Step 5: Refine the integer tau using parabolic interpolation.
+         * Fits a parabola to the point and its two neighbors to find a sub-sample minimum.
+         */
+        function parabolicRefine(cmnd, tau) {
+            // Cannot interpolate if at the very edges of the array
+            if (tau <= 0 || tau >= cmnd.length - 1) return tau;
+
+            const y0 = cmnd[tau - 1];
+            const y1 = cmnd[tau];
+            const y2 = cmnd[tau + 1];
+
+            // The vertex of the parabola is at x = tau + s
+            // s = (y2 - y0) / (2 * (2 * y1 - y0 - y2))
+            const denominator = 2 * (2 * y1 - y0 - y2);
+
+            // If the denominator is 0, the points are linear; no refinement possible
+            if (Math.abs(denominator) < 1e-10) return tau;
+
+            const s = (y2 - y0) / denominator;
+            return tau + s;
+        }
+
+        // Draw Yin canvases
+        function drawAutocorr(autocorr) {
+            const canvas = document.getElementById('autocorr-canvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width = canvas.clientWidth;
+            const H = canvas.height = canvas.clientHeight;
+            const margin = 40;
+            const plotW = W - margin;
+            const plotH = H - margin;
+
+            ctx.fillStyle = "#D8DCDB";
+            ctx.fillRect(0, 0, W, H);
+
+            // Only show first half of autocorr (meaningful lags)
+            const N = Math.floor(autocorr.length / 2);
+            const r0 = autocorr[0] || 1;
+
+            ctx.strokeStyle = "#004E38";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for (let i = 0; i < N; i++) {
+                const x = margin + (i / N) * plotW;
+                const v = autocorr[i] / r0; // normalize to [-1, 1]
+                const y = plotH - ((v + 1) / 2) * plotH; // map [-1,1] → [plotH, 0]
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Ticks: x = lag in ms at sampleRate; y = normalized correlation
+            const sr = audioCtx ? audioCtx.sampleRate : 44100;
+            drawAxesTicks(ctx, W, H, margin, "lag (ms)", "r(τ)/r(0)", [
+                { frac: 0.25, label: `${(0.25 * N / sr * 1000).toFixed(1)}` },
+                { frac: 0.5, label: `${(0.5 * N / sr * 1000).toFixed(1)}` },
+                { frac: 0.75, label: `${(0.75 * N / sr * 1000).toFixed(1)}` },
+            ], [
+                { frac: 0.25, label: "-0.5" },
+                { frac: 0.5, label: "0" },
+                { frac: 0.75, label: "0.5" },
+                { frac: 1.0, label: "1" },
+            ]);
+        }
+
+        function drawDiff(diff) {
+            const canvas = document.getElementById('diff-canvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width = canvas.clientWidth;
+            const H = canvas.height = canvas.clientHeight;
+            const margin = 40;
+            const plotW = W - margin;
+            const plotH = H - margin;
+
+            ctx.fillStyle = "#D8DCDB";
+            ctx.fillRect(0, 0, W, H);
+
+            const N = diff.length;
+            let maxVal = 1;
+            for (let i = 1; i < diff.length; i++) {
+                if (diff[i] > maxVal) maxVal = diff[i];
+            }
+
+            ctx.strokeStyle = "#004E38";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for (let tau = 0; tau < N; tau++) {
+                const x = margin + (tau / N) * plotW;
+                const y = plotH - (diff[tau] / maxVal) * plotH;
+                tau === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            const sr = audioCtx ? audioCtx.sampleRate : 44100;
+            drawAxesTicks(ctx, W, H, margin, "τ (ms)", "d(τ)", [
+                { frac: 0.25, label: `${(0.25 * N / sr * 1000).toFixed(1)}` },
+                { frac: 0.5, label: `${(0.5 * N / sr * 1000).toFixed(1)}` },
+                { frac: 0.75, label: `${(0.75 * N / sr * 1000).toFixed(1)}` },
+            ], [
+                { frac: 0.5, label: `${(maxVal * 0.5).toFixed(2)}` },
+                { frac: 1.0, label: `${maxVal.toFixed(2)}` },
+            ]);
+        }
+
+        function drawCMND(cmnd, canvasName = 'CMND-canvas') {
+            const canvas = document.getElementById(canvasName);
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width = canvas.clientWidth;
+            const H = canvas.height = canvas.clientHeight;
+            const margin = 40;
+            const plotW = W - margin;
+            const plotH = H - margin;
+
+            ctx.fillStyle = "#D8DCDB";
+            ctx.fillRect(0, 0, W, H);
+
+            const N = cmnd.length;
+
+            ctx.strokeStyle = "#004E38";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for (let tau = 0; tau < N; tau++) {
+                const x = margin + (tau / N) * plotW;
+                // clamp to [0, 2] for display — values >> 1 are uninteresting
+                const v = Math.min(cmnd[tau], 2);
+                const y = plotH - (v / 2) * plotH;
+                tau === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Draw threshold line at 0.1
+            ctx.strokeStyle = "#864A37";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([6, 4]);
+            ctx.beginPath();
+            const threshY = plotH - (0.1 / 2) * plotH;
+            ctx.moveTo(margin, threshY);
+            ctx.lineTo(W, threshY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = "#864A37";
+            ctx.fillText("0.1", margin + 4, threshY - 3);
+
+            const sr = audioCtx ? audioCtx.sampleRate : 44100;
+            drawAxesTicks(ctx, W, H, margin, "τ (ms)", "d'(τ)", [
+                { frac: 0.25, label: `${(0.25 * N / sr * 1000).toFixed(1)}` },
+                { frac: 0.5, label: `${(0.5 * N / sr * 1000).toFixed(1)}` },
+                { frac: 0.75, label: `${(0.75 * N / sr * 1000).toFixed(1)}` },
+            ], [
+                { frac: 0.5, label: "1.0" },
+                { frac: 1.0, label: "2.0" },
+            ]);
+        }
+
+        function drawThreshold(cmnd, tau) {
+            // Reuses the cmnd canvas but highlights where threshold was found.
+            // Call drawCMND first, then overlay the selected tau marker.
+            drawCMND(cmnd, 'threshold-canvas');
+            const canvas = document.getElementById('threshold-canvas');
+            if (!canvas || tau == null) return;
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width;
+            const H = canvas.height;
+            const margin = 40;
+            const plotW = W - margin;
+            const plotH = H - margin;
+            const N = cmnd.length;
+
+            const x = margin + (tau / N) * plotW;
+            ctx.strokeStyle = "#866F45"; // wm-gold
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, plotH);
+            ctx.stroke();
+
+            const sr = audioCtx ? audioCtx.sampleRate : 44100;
+            ctx.fillStyle = "#866F45";
+            ctx.font = "bold 11px 'Times New Roman'";
+            ctx.fillText(`τ=${(tau / sr * 1000).toFixed(2)}ms`, x + 4, 14);
+        }
+
+        function drawParabola(cmnd, tauFine) {
+            const canvas = document.getElementById('parabola-canvas');
+            if (!canvas || tauFine == null) return;
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width = canvas.clientWidth;
+            const H = canvas.height = canvas.clientHeight;
+            const margin = 40;
+            const plotW = W - margin;
+            const plotH = H - margin;
+
+            ctx.fillStyle = "#D8DCDB";
+            ctx.fillRect(0, 0, W, H);
+
+            // Show a tight window of ±5 samples around tauFine
+            const tauInt = Math.round(tauFine);
+            const windowHalf = 5;
+            const tauMin = Math.max(1, tauInt - windowHalf);
+            const tauMax = Math.min(cmnd.length - 2, tauInt + windowHalf);
+            const span = tauMax - tauMin;
+
+            // Draw CMND dots in window
+            const yVals = [];
+            for (let t = tauMin; t <= tauMax; t++) yVals.push(cmnd[t]);
+            const yMin = Math.min(...yVals);
+            const yMax = Math.max(...yVals) || 1;
+            const yRange = yMax - yMin || 1;
+
+            ctx.fillStyle = "#004E38";
+            for (let t = tauMin; t <= tauMax; t++) {
+                const x = margin + ((t - tauMin) / span) * plotW;
+                const y = plotH - ((cmnd[t] - yMin) / yRange) * plotH * 0.9;
+                ctx.beginPath();
+                ctx.arc(x, y, 3, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+
+            // Draw fitted parabola through tauInt-1, tauInt, tauInt+1
+            const y0 = cmnd[tauInt - 1], y1 = cmnd[tauInt], y2 = cmnd[tauInt + 1];
+            ctx.strokeStyle = "#866F45"; // gold for parabola
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            for (let px = 0; px <= plotW; px++) {
+                const t = tauMin + (px / plotW) * span;
+                // Lagrange interpolation at t using points (tauInt-1, y0), (tauInt, y1), (tauInt+1, y2)
+                const dt = t - tauInt;
+                const v = y0 * (dt * (dt - 1)) / 2
+                    - y1 * ((dt + 1) * (dt - 1))
+                    + y2 * ((dt + 1) * dt) / 2;
+                const y = plotH - ((v - yMin) / yRange) * plotH * 0.9;
+                px === 0 ? ctx.moveTo(margin + px, y) : ctx.lineTo(margin + px, y);
+            }
+            ctx.stroke();
+
+            // Mark the refined minimum
+            const x = margin + ((tauFine - tauMin) / span) * plotW;
+            ctx.strokeStyle = "#964A37";
+            ctx.lineWidth = 1;
+            ctx.setLineDash([4, 3]);
+            ctx.beginPath();
+            ctx.moveTo(x, 0); ctx.lineTo(x, plotH);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            const sr = audioCtx ? audioCtx.sampleRate : 44100;
+            const freqEst = sr / tauFine;
+            ctx.fillStyle = "#964A37";
+            ctx.font = "bold 11px 'Times New Roman'";
+            ctx.fillText(`τ̂=${tauFine.toFixed(2)} → ${freqEst.toFixed(1)}Hz`, margin + 4, 14);
+
+            drawAxesTicks(ctx, W, H, margin, "τ (samples)", "d'(τ)", [
+                { frac: 0.0, label: `${tauMin}` },
+                { frac: 0.5, label: `${tauInt}` },
+                { frac: 1.0, label: `${tauMax}` },
+            ], [
+                { frac: 0.5, label: yMin.toFixed(2) },
+                { frac: 1.0, label: yMax.toFixed(2) },
+            ]);
+        }
+
+        function centsToHue(cents) {
+            const absCents = Math.abs(cents);
+            if (absCents > 45) return 0; // red
+            return 120 - (absCents / 45) * 120; // green to red
+        }
+
+        function centsToColor(cents) {
+            const hue = centsToHue(cents);
+            return `hsl(${hue}, 50%, 75%)`;
+        }
+
+        function update() {
+            analyser.getFloatTimeDomainData(buffer);
+            const pitch = autoCorrelate(buffer, audioCtx.sampleRate);
+
+            if (pitch !== -1) {
+                const { note, cents } = getNote(pitch);
+                const color = centsToColor(cents);
+                const hue = centsToHue(cents);
+                const absCents = Math.abs(cents);
+                const opacity = absCents > 45 ? 0.1 : 1 - (absCents / 45);
+
+                const bg = `rgba(255, 255, 255, 1)`;
+                const bgMid = `rgba(0, 78, 56, ${opacity * 0.7})`;
+                const bgEdge = `rgba(0, 78, 56, ${opacity * 0.2})`;
+
+                document.getElementById('note').innerText = note;
+                document.getElementById('note').style.color = color;
+                document.getElementById('freq').innerText = `${pitch.toFixed(1)} Hz`;
+                document.getElementById('freq').style.color = color;
+                document.getElementById('needle').style.left = `${50 + Math.max(-50, Math.min(50, cents))}%`;
+                document.getElementById('needle').style.backgroundColor = color;
+
+                document.getElementById('cloud-circle').style.background = `radial-gradient(ellipse at center,
+                    ${bg} 0%,
+                    ${bg} 15%,
+                    ${bg} 35%,
+                    ${bgEdge} 55%,
+                    transparent 70%)`;
+            }
+            requestAnimationFrame(update);
+        };
+
+
+        function autoCorrelate(buf, sampleRate) {
+            let size = buf.length;
+            let rms = 0;
+            for (let i = 0; i < size; i++) rms += buf[i] * buf[i];
+            if (Math.sqrt(rms / size) < 0.01) return -1; // Too quiet
+
+            let r1 = 0, r2 = size - 1, thres = 0.2;
+            for (let i = 0; i < size / 2; i++) {
+                if (Math.abs(buf[i]) < thres) { r1 = i; break; }
+            }
+            for (let i = 1; i < size / 2; i++) {
+                if (Math.abs(buf[size - i]) < thres) { r2 = size - i; break; }
+            }
+
+            buf = buf.slice(r1, r2);
+            size = buf.length;
+
+            let c = new Array(size).fill(0);
+            for (let i = 0; i < size; i++) {
+                for (let j = 0; j < size - i; j++) {
+                    c[i] = c[i] + buf[j] * buf[j + i];
+                }
+            }
+
+            let d = 0; while (c[d] > c[d + 1]) d++;
+            let maxval = -1, maxpos = -1;
+            for (let i = d; i < size; i++) {
+                if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
+            }
+
+            return sampleRate / maxpos;
+        }
+
+        function centsToColor(cents) {
+            const absCents = Math.abs(cents);
+            if (absCents > 45) {
+                // Too far — not really attempting this note
+                return "#864A37"; // --brick-red, neutral "no man's land"
+            }
+            // 0 cents = green (120), 45 cents = red (0)
+            const hue = 120 - (absCents / 45) * 120;
+            return `hsl(${hue}, 80%, 35%)`;
+        }
+
+
+
+        function getNote(frequency) {
+            if (currentScale.kind === 'absolute') {
+                const noteEntries = Array.isArray(currentScale.notes) ? currentScale.notes : [];
+                if (noteEntries.length === 0) {
+                    return { note: '--', cents: 0 };
+                }
+
+                let best = { note: noteEntries[0].note || '--', cents: 0, dist: Infinity };
+
+                for (const entry of noteEntries) {
+                    const baseFreq = Number(entry.frequency);
+                    if (!Number.isFinite(baseFreq) || baseFreq <= 0) continue;
+
+                    for (let shift = -4; shift <= 4; shift++) {
+                        const target = baseFreq * Math.pow(2, shift);
+                        const cents = 1200 * Math.log2(frequency / target);
+                        const dist = Math.abs(cents);
+
+                        if (dist < best.dist) {
+                            best = {
+                                note: shift === 0 ? entry.note : `${entry.note} (${shift > 0 ? '+' : ''}${shift} oct)`,
+                                cents,
+                                dist
+                            };
+                        }
+                    }
+                }
+
+                return { note: best.note, cents: best.cents };
+            }
+
+            const { notes, cents, octave } = currentScale;
+
+            // Convert frequency to cents above A4 (440Hz), then reduce to one pseudo-octave
+            const centsAboveA4 = 1200 * Math.log2(frequency / 440);
+            const centsInOctave = ((centsAboveA4 % octave) + octave) % octave;
+
+            // Find nearest scale degree
+            let minDist = Infinity;
+            let nearestNote = notes[0];
+            let nearestCents = 0;
+
+            for (let i = 0; i < cents.length; i++) {
+                const dist = Math.abs(centsInOctave - cents[i]);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearestNote = notes[i];
+                    nearestCents = cents[i];
+                }
+            }
+
+            const deviation = centsInOctave - nearestCents; // signed cents off from nearest note
+            return { note: nearestNote, cents: deviation };
+        }
+
+        refreshCustomTunings();
+    </script>
+</body>
+
+</html>
