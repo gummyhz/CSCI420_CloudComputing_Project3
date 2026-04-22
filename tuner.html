@@ -208,12 +208,29 @@
             z-index: 1;
         }
 
+        .graph-container {
+            margin: 30px auto;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.3);
+            border: 1px solid var(--wm-gold);
+            border-radius: 4px;
+            max-width: 95%;
+        }
+
+        .graph-caption {
+            font-style: italic;
+            font-size: 0.9rem;
+            margin-top: 8px;
+            color: var(--dark-green);
+            text-align: center;
+        }
+
         canvas {
             width: 100%;
             height: 250px;
             display: block;
-            margin: 20px 0;
-            padding: 1rem;
+            margin: 0;
+            /* Margin handled by container */
             background-color: var(--wm-silver);
             border: 1px solid var(--wm-gold);
         }
@@ -392,7 +409,12 @@
         The input signal, obtained from the Web Audio API,
         comes in as a discrete time-series array of amplitudes.
 
-        <canvas id="amp-canvas"></canvas>
+        <div class="graph-container">
+            <canvas id="amp-canvas"></canvas>
+            <div class="" graph-caption">Input Signal - Amplitudes over Time</div>
+
+        </div>
+
 
 
         <h4>Step 1: Autocorrelation</h4>
@@ -411,7 +433,7 @@
         fundemental frequency is closer to the origin point \(t\).
         <br>
         <br>
-        The Weiner-Khinchin theorem (in the discrete time case) allows us to compute the autocorrelation funtion using a
+        The Weiner-Khinchin theorem (in the discrete time case) allows us to compute the autocorrelation function using a
         Fourier Transform.
         <br>
 
@@ -526,7 +548,12 @@
         $$
 
 
-        <canvas id="autocorr-canvas"></canvas>
+        <div class="graph-container">
+            <canvas id="autocorr-canvas"></canvas>
+            <div class="graph-caption">Step 1: Autocorrelation Function - temporal similarity of the signal to itself
+            </div>
+        </div>
+
         <br><br>
         <h4>Step 2: Difference Function</h4>
         Consider this difference function, used to find an unknown period:
@@ -551,7 +578,11 @@
 
         This is great! We can find the period, and from the period find the frequency.
 
-        <canvas id="diff-canvas"></canvas>
+        <div class="graph-container">
+            <canvas id="diff-canvas"></canvas>
+            <div class="graph-caption">Step 2: Difference Function - dips show candidates for the period</div>
+        </div>
+
         <br><br>
         <h4>Step 3: Cumulative Mean Normalized Difference Function</h4>
         However, there are two issues.
@@ -588,6 +619,13 @@
 
         <br><br>
 
+
+        <div class="graph-container">
+            <canvas id="CMND-canvas"></canvas>
+            <div class="graph-caption">Step 3: Cumulative Mean Normalized Difference Function</div>
+        </div>
+
+        <br><br>
         <h4>Step 4: Absolute Threshold</h4>
         Another issue which could cause inacuraccies is subharmonic errors.
         They occur at lower freqencies than the fundemental frequency of the sound,
@@ -595,13 +633,15 @@
 
         <br><br>
         To address this, we will take the smallest \(\tau\)
-        where \(d_t'(\tau) \lt \text{THRESHOLD}\) for some THRESHOLD such as 0.1 <br><br>
-        <canvas id="CMND-canvas"></canvas>
+        where \(d_t'(\tau) \lt \text{THRESHOLD}\) for some THRESHOLD such as 0.1
+
+
+        <div class="graph-container">
+            <canvas id="threshold-canvas"></canvas>
+            <div class="graph-caption">Step 4: Threshold on the Cumulative Mean Normalized Difference Function</div>
+        </div>
+
         <br><br>
-
-
-        <canvas id="threshold-canvas"></canvas>
-        <!-- <br><br> -->
 
         <h4>Step 5: Parabolic Interpolation</h4>
         For each local minima \(\tau\), we will fit a parabola onto \(d_t(\tau-1), d_t(\tau), d_t(\tau+1)\)
@@ -616,7 +656,11 @@
         <br>
         and by taking the
         reciprocal, a frequency estimate: \(\hat{\xi} = \frac{1}{\hat{T}}\).
-        <canvas id="parabola-canvas"></canvas>
+        <div class="graph-container">
+            <canvas id="parabola-canvas"></canvas>
+            <div class="graph-caption">Step 5: Parabolic Interpolation for sub-sample precision</div>
+        </div>
+
         <br><br>
 
         <h4>Step 6: Best Local Estimate</h4>
@@ -635,7 +679,14 @@
         -
         .2\cdot T_{\theta}, T_{\theta} + .2\cdot T_{\theta}]\)
 
-        <canvas id="freq-canvas"></canvas>
+        <div class="graph-container">
+            <canvas id="freq-canvas"></canvas>
+            
+            <div class="graph-caption">Frequency Spectrum (Amplitude vs Frequency); Green bars are the frequency spectrum straight from the analyser used to take in the sound, and the gold bar indicates the Yin algorithm's predicted fundemental frequency.</div>
+            <div id="yin-display" style="font-weight: bold; color: #866F45; text-align: center; margin-top: 5px;">
+                Yin Prediction: -- Hz
+            </div>
+        </div>
 
 
     </div>
@@ -659,6 +710,7 @@
 
         const FFT_SIZE = 2048;
         const API_BASE_KEY = 'tunerApiBaseUrl';
+        const PLOT_MARGIN = { top: 20, right: 20, bottom: 50, left: 60 };
 
         let audioCtx;
         let analyser;
@@ -892,148 +944,151 @@
 
         function draw() {
             requestAnimationFrame(draw);
+            if (!analyser) return;
+
             analyser.getFloatTimeDomainData(tdarray);
             analyser.getFloatFrequencyData(fdarray);
 
-            // Compute all intermediates once
-            const autocorr = computeAutocorr(tdarray);       // reuse across steps
+            const autocorr = computeAutocorr(tdarray);
             const diff = computeDiff(autocorr);
             const cmnd = computeCMND(diff);
             const tau = findThreshold(cmnd, 0.1);
-            const tauFine = parabolicRefine(cmnd, tau);
+            const tauFine = tau !== -1 ? parabolicRefine(cmnd, tau) : null;
 
-            // Then draw each canvas with already-computed data
-            drawAmpTime(tdarray); // input from analyser
+            const detectedFreq = tauFine ? audioCtx.sampleRate / tauFine : null;
+            const displayEl = document.getElementById('yin-display');
+            if (displayEl) {
+                displayEl.innerText = detectedFreq
+                    ? `Yin Prediction: ${detectedFreq.toFixed(2)} Hz`
+                    : `Yin Prediction: -- Hz`;
+            }
+
+            drawAmpTime(tdarray);
             drawAutocorr(autocorr);
             drawDiff(diff);
             drawCMND(cmnd);
             drawThreshold(cmnd, tau);
-            drawParabola(cmnd, tauFine);
-            drawFreqTime(fdarray); // using analyser's built in frequency domain data
+            if (tauFine) {
+                drawParabola(cmnd, tauFine);
+            }
+            drawFreqTime(fdarray, detectedFreq);
         }
 
         // Amplitudes from analyser
-        function drawAmpTime() {
+        function drawAmpTime(data) {
             const canvas = document.getElementById('amp-canvas');
             const ctx = canvas.getContext('2d');
-            const WIDTH = canvas.width = canvas.clientWidth;
-            const HEIGHT = canvas.height = canvas.clientHeight;
+            const W = canvas.width = canvas.clientWidth, H = canvas.height = canvas.clientHeight;
+            const { top, left, bottom, right } = PLOT_MARGIN;
+            const plotW = W - left - right, plotH = H - top - bottom;
 
-            const margin = 40;
-            const plotWidth = WIDTH - margin;
-            const plotHeight = HEIGHT - margin;
-
-            ctx.fillStyle = "#D8DCDB"; // --wm-silver
-            ctx.fillRect(0, 0, WIDTH, HEIGHT);
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = "#004E38"; // --wm-green
-            ctx.beginPath();
-
-            const sliceWidth = plotWidth / tdarray.length;
-            let x = margin;
-
-            for (let i = 0; i < tdarray.length; i++) {
-                const v = tdarray[i];
-                const y = ((1 - v) / 2) * plotHeight + margin / 2;
-                if (i === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-                x += sliceWidth;
+            ctx.fillStyle = "#fdfdfd"; ctx.fillRect(0, 0, W, H);
+            ctx.strokeStyle = "#004E38"; ctx.beginPath();
+            for (let i = 0; i < data.length; i++) {
+                const x = left + (i / data.length) * plotW;
+                const y = top + (plotH / 2) - (data[i] * (plotH / 2));
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             }
-            // ctx.lineTo(WIDTH, HEIGHT / 2);
             ctx.stroke();
-            drawAxes(ctx, WIDTH, HEIGHT, "Time", "Amp");
-        };
+            drawAxesTicks(ctx, W, H, "Time (Samples)", "Amplitude",
+                [{ frac: 0, label: "0" }, { frac: 0.5, label: data.length / 2 }, { frac: 1, label: data.length }],
+                [{ frac: 0.1, label: "-0.8" }, { frac: 0.5, label: "0" }, { frac: 0.9, label: "0.8" }]
+            );
+        }
 
         // Frequencies from analyser
-        function drawFreqTime() {
+        function drawFreqTime(fdarray, detectedFreq) {
             const canvas = document.getElementById('freq-canvas');
             const ctx = canvas.getContext('2d');
-            const WIDTH = canvas.width = canvas.clientWidth;
-            const HEIGHT = canvas.height = canvas.clientHeight;
+            const W = canvas.width = canvas.clientWidth, H = canvas.height = canvas.clientHeight;
+            const { top, left, bottom, right } = PLOT_MARGIN;
+            const plotW = W - left - right, plotH = H - top - bottom;
 
-            ctx.fillStyle = "#D8DCDB";
-            ctx.fillRect(0, 0, WIDTH, HEIGHT);
+            ctx.fillStyle = "#fdfdfd"; ctx.fillRect(0, 0, W, H);
+            ctx.fillStyle = "#004E38";
 
-            const margin = 40;
-            const plotWidth = WIDTH - margin;
-            const plotHeight = HEIGHT - margin;
-
-            const barWidth = (WIDTH / fdarray.length) * 2.5;
-            let x = margin; // Start after Y-axis
-
-            // Start i at 2 to ignore the DC offset/low rumble at 0Hz
-            for (let i = 2; i < fdarray.length; i++) {
-                const barHeight = ((fdarray[i] + 160) / 160) * plotHeight; // map -160..0 dB to 0..1
-                ctx.fillStyle = "#004E38";
-                ctx.fillRect(x, HEIGHT - barHeight - 20, barWidth, barHeight);
-                x += barWidth + 1;
+            const barCount = fdarray.length;
+            const barW = plotW / barCount;
+            for (let i = 0; i < barCount; i++) {
+                const val = Math.max(0, (fdarray[i] + 100) / 100);
+                ctx.fillRect(left + i * barW, top + plotH - (val * plotH), barW, val * plotH);
             }
 
-            drawAxes(ctx, WIDTH, HEIGHT, "Hz", "Amp");
+            // Highlight detected frequency
+            if (detectedFreq && audioCtx) {
+                const maxHz = audioCtx.sampleRate / 2;
+                const xFreq = left + (detectedFreq / maxHz) * plotW;
+                if (xFreq >= left && xFreq <= left + plotW) {
+                    ctx.strokeStyle = "#FDB714"; // wm-spirit-gold
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(xFreq, top);
+                    ctx.lineTo(xFreq, top + plotH);
+                    ctx.stroke();
+                    ctx.fillStyle = "#866F45";
+                    ctx.fillText(`${detectedFreq.toFixed(1)} Hz`, xFreq, top - 5);
+                }
+            }
+
+            const maxHzLabel = (audioCtx ? audioCtx.sampleRate / 2 : 22050).toFixed(0);
+            drawAxesTicks(ctx, W, H, "Frequency (Hz)", "Level (dB)",
+                [{ frac: 0, label: "0" }, { frac: 0.5, label: maxHzLabel / 2 }, { frac: 1, label: maxHzLabel }],
+                [{ frac: 0, label: "-100" }, { frac: 0.5, label: "-50" }, { frac: 1, label: "0" }]
+            );
         }
 
-        function drawAxes(ctx, width, height, labelX, labelY) {
-            ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
-            ctx.fillStyle = "#00231B";
-            ctx.font = "bold 12px 'Times New Roman'";
-            ctx.lineWidth = 1;
-
-            // Y-axis
-            ctx.beginPath();
-            ctx.moveTo(30, 0);
-            ctx.lineTo(30, height - 20); // Stop at X-axis
-            ctx.stroke();
-            ctx.fillText(labelY, 3, 15);
-
-            // X-axis
-            ctx.beginPath();
-            ctx.moveTo(30, height - 20);
-            ctx.lineTo(width, height - 20);
-            ctx.stroke();
-            ctx.fillText(labelX, width - 40, height - 5);
-        }
-
-        function drawAxesTicks(ctx, width, height, margin, labelX, labelY, xTicks, yTicks) {
+        function drawAxesTicks(ctx, width, height, labelX, labelY, xTicks = [], yTicks = []) {
+            const { top, bottom, left, right } = PLOT_MARGIN;
+            const plotW = width - left - right;
+            const plotH = height - top - bottom;
             ctx.strokeStyle = "rgba(0,0,0,0.5)";
             ctx.fillStyle = "#00231B";
-            ctx.font = "bold 11px 'Times New Roman'";
             ctx.lineWidth = 1;
 
-            const plotW = width - margin;
-            const plotH = height - margin;
 
-            // Y-axis
             ctx.beginPath();
-            ctx.moveTo(margin, 0);
-            ctx.lineTo(margin, plotH);
+            ctx.moveTo(left, top);
+            ctx.lineTo(left, top + plotH); // Y Axis
+            ctx.lineTo(left + plotW, top + plotH); // X Axis
             ctx.stroke();
-            ctx.fillText(labelY, 3, 12);
 
-            // X-axis
-            ctx.beginPath();
-            ctx.moveTo(margin, plotH);
-            ctx.lineTo(width, plotH);
-            ctx.stroke();
-            ctx.fillText(labelX, width - 35, height - 4);
+            // Axis Labels
+            ctx.font = "bold 12px 'Times New Roman'";
+            ctx.textAlign = "center";
+            ctx.fillText(labelX, left + plotW / 2, height - 10);
 
-            // X tick marks: array of {value, label} where value is 0..1 (fraction of plot width)
+            ctx.save();
+
+            ctx.translate(15, top + plotH / 2);
+            ctx.rotate(-Math.PI / 2);
+            ctx.fillText(labelY, 0, 0);
+            ctx.restore();
+
+
+
+            // Tick Marks
+            ctx.font = "10px sans-serif";
+
+            // X-Ticks
+            ctx.textAlign = "center";
             for (const tick of xTicks) {
-                const x = margin + tick.frac * plotW;
+                const x = left + tick.frac * plotW;
                 ctx.beginPath();
-                ctx.moveTo(x, plotH);
-                ctx.lineTo(x, plotH + 5);
+                ctx.moveTo(x, top + plotH);
+                ctx.lineTo(x, top + plotH + 5);
                 ctx.stroke();
-                ctx.fillText(tick.label, x - 10, height - 4);
+                ctx.fillText(tick.label, x, top + plotH + 18);
             }
 
-            // Y tick marks: array of {frac, label} where frac is 0 (bottom) to 1 (top)
+            // Y-Ticks
+            ctx.textAlign = "right";
             for (const tick of yTicks) {
-                const y = plotH - tick.frac * plotH;
+                const y = top + plotH - (tick.frac * plotH);
                 ctx.beginPath();
-                ctx.moveTo(margin, y);
-                ctx.lineTo(margin - 5, y);
+                ctx.moveTo(left, y);
+                ctx.lineTo(left - 5, y);
                 ctx.stroke();
-                ctx.fillText(tick.label, 1, y + 4);
+                ctx.fillText(tick.label, left - 8, y + 3);
             }
         }
 
@@ -1119,280 +1174,161 @@
                 tau++;
             }
 
-            // 3. Fallback: If nothing was below threshold, find the absolute global minimum
-            let minTau = -1;
-            let minVal = Infinity;
-            for (let i = 2; i < N; i++) {
-                if (cmnd[i] < minVal) {
-                    minVal = cmnd[i];
-                    minTau = i;
-                }
-            }
-            return minTau;
+            return -1;
         }
 
         /**
          * Step 5: Refine the integer tau using parabolic interpolation.
          * Fits a parabola to the point and its two neighbors to find a sub-sample minimum.
          */
+        // function parabolicRefine(cmnd, tau) {
+        //     // Cannot interpolate if at the very edges of the array
+        //     if (tau <= 0 || tau >= cmnd.length - 1) return tau;
+
+        //     const y0 = cmnd[tau - 1];
+        //     const y1 = cmnd[tau];
+        //     const y2 = cmnd[tau + 1];
+
+        //     // The vertex of the parabola is at x = tau + s
+        //     // s = (y2 - y0) / (2 * (2 * y1 - y0 - y2))
+        //     const denominator = 2 * (2 * y1 - y0 - y2);
+
+        //     // If the denominator is 0, the points are linear; no refinement possible
+        //     if (Math.abs(denominator) < 1e-10) return tau;
+
+        //     const s = (y2 - y0) / denominator;
+        //     return tau + s;
+        // }
         function parabolicRefine(cmnd, tau) {
-            // Cannot interpolate if at the very edges of the array
-            if (tau <= 0 || tau >= cmnd.length - 1) return tau;
-
-            const y0 = cmnd[tau - 1];
-            const y1 = cmnd[tau];
-            const y2 = cmnd[tau + 1];
-
-            // The vertex of the parabola is at x = tau + s
-            // s = (y2 - y0) / (2 * (2 * y1 - y0 - y2))
-            const denominator = 2 * (2 * y1 - y0 - y2);
-
-            // If the denominator is 0, the points are linear; no refinement possible
-            if (Math.abs(denominator) < 1e-10) return tau;
-
-            const s = (y2 - y0) / denominator;
-            return tau + s;
+            if (tau < 1 || tau >= cmnd.length - 1) return tau;
+            const y0 = cmnd[tau - 1], y1 = cmnd[tau], y2 = cmnd[tau + 1];
+            const denom = 2 * (2 * y1 - y0 - y2);
+            if (Math.abs(denom) < 1e-10) return tau;
+            return tau + (y2 - y0) / denom;
         }
 
         // Draw Yin canvases
         function drawAutocorr(autocorr) {
             const canvas = document.getElementById('autocorr-canvas');
-            if (!canvas) return;
             const ctx = canvas.getContext('2d');
-            const W = canvas.width = canvas.clientWidth;
-            const H = canvas.height = canvas.clientHeight;
-            const margin = 40;
-            const plotW = W - margin;
-            const plotH = H - margin;
+            const W = canvas.width = canvas.clientWidth, H = canvas.height = canvas.clientHeight;
+            const { top, bottom, left, right } = PLOT_MARGIN;
+            const plotW = W - left - right, plotH = H - top - bottom;
 
-            ctx.fillStyle = "#D8DCDB";
-            ctx.fillRect(0, 0, W, H);
-
-            // Only show first half of autocorr (meaningful lags)
+            ctx.fillStyle = "#D8DCDB"; ctx.fillRect(0, 0, W, H);
             const N = Math.floor(autocorr.length / 2);
             const r0 = autocorr[0] || 1;
 
-            ctx.strokeStyle = "#004E38";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
+            ctx.strokeStyle = "#004E38"; ctx.lineWidth = 2; ctx.beginPath();
             for (let i = 0; i < N; i++) {
-                const x = margin + (i / N) * plotW;
-                const v = autocorr[i] / r0; // normalize to [-1, 1]
-                const y = plotH - ((v + 1) / 2) * plotH; // map [-1,1] → [plotH, 0]
+                const x = left + (i / N) * plotW;
+                const v = autocorr[i] / r0;
+                const y = top + plotH - ((v + 1) / 2) * plotH;
                 i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             }
             ctx.stroke();
 
-            // Ticks: x = lag in ms at sampleRate; y = normalized correlation
             const sr = audioCtx ? audioCtx.sampleRate : 44100;
-            drawAxesTicks(ctx, W, H, margin, "lag (ms)", "r(τ)/r(0)", [
-                { frac: 0.25, label: `${(0.25 * N / sr * 1000).toFixed(1)}` },
-                { frac: 0.5, label: `${(0.5 * N / sr * 1000).toFixed(1)}` },
-                { frac: 0.75, label: `${(0.75 * N / sr * 1000).toFixed(1)}` },
-            ], [
-                { frac: 0.25, label: "-0.5" },
-                { frac: 0.5, label: "0" },
-                { frac: 0.75, label: "0.5" },
-                { frac: 1.0, label: "1" },
-            ]);
+            drawAxesTicks(ctx, W, H, "Lag (ms)", "r(τ)/r(0)",
+                [{ frac: 0, label: "0" }, { frac: 0.5, label: (0.5 * N / sr * 1000).toFixed(1) }, { frac: 1, label: (N / sr * 1000).toFixed(1) }],
+                [{ frac: 0, label: "-1" }, { frac: 0.5, label: "0" }, { frac: 1, label: "1" }]
+            );
         }
 
         function drawDiff(diff) {
             const canvas = document.getElementById('diff-canvas');
-            if (!canvas) return;
             const ctx = canvas.getContext('2d');
-            const W = canvas.width = canvas.clientWidth;
-            const H = canvas.height = canvas.clientHeight;
-            const margin = 40;
-            const plotW = W - margin;
-            const plotH = H - margin;
+            const W = canvas.width = canvas.clientWidth, H = canvas.height = canvas.clientHeight;
+            const { top, bottom, left, right } = PLOT_MARGIN;
+            const plotW = W - left - right, plotH = H - top - bottom;
 
-            ctx.fillStyle = "#D8DCDB";
-            ctx.fillRect(0, 0, W, H);
+            ctx.fillStyle = "#D8DCDB"; ctx.fillRect(0, 0, W, H);
+            let maxVal = Math.max(...diff) || 1;
 
-            const N = diff.length;
-            let maxVal = 1;
-            for (let i = 1; i < diff.length; i++) {
-                if (diff[i] > maxVal) maxVal = diff[i];
-            }
-
-            ctx.strokeStyle = "#004E38";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            for (let tau = 0; tau < N; tau++) {
-                const x = margin + (tau / N) * plotW;
-                const y = plotH - (diff[tau] / maxVal) * plotH;
-                tau === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            ctx.strokeStyle = "#004E38"; ctx.beginPath();
+            for (let i = 0; i < diff.length; i++) {
+                const x = left + (i / diff.length) * plotW;
+                const y = top + plotH - (diff[i] / maxVal) * plotH;
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             }
             ctx.stroke();
 
-            const sr = audioCtx ? audioCtx.sampleRate : 44100;
-            drawAxesTicks(ctx, W, H, margin, "τ (ms)", "d(τ)", [
-                { frac: 0.25, label: `${(0.25 * N / sr * 1000).toFixed(1)}` },
-                { frac: 0.5, label: `${(0.5 * N / sr * 1000).toFixed(1)}` },
-                { frac: 0.75, label: `${(0.75 * N / sr * 1000).toFixed(1)}` },
-            ], [
-                { frac: 0.5, label: `${(maxVal * 0.5).toFixed(2)}` },
-                { frac: 1.0, label: `${maxVal.toFixed(2)}` },
-            ]);
+            drawAxesTicks(ctx, W, H, "Lag (τ)", "d(τ)",
+                [{ frac: 0, label: "0" }, { frac: 1, label: diff.length }],
+                [{ frac: 0, label: "0" }, { frac: 1, label: maxVal }]
+            );
         }
 
         function drawCMND(cmnd, canvasName = 'CMND-canvas') {
             const canvas = document.getElementById(canvasName);
-            if (!canvas) return;
             const ctx = canvas.getContext('2d');
-            const W = canvas.width = canvas.clientWidth;
-            const H = canvas.height = canvas.clientHeight;
-            const margin = 40;
-            const plotW = W - margin;
-            const plotH = H - margin;
+            const W = canvas.width = canvas.clientWidth, H = canvas.height = canvas.clientHeight;
+            const { top, bottom, left, right } = PLOT_MARGIN;
+            const plotW = W - left - right, plotH = H - top - bottom;
 
-            ctx.fillStyle = "#D8DCDB";
-            ctx.fillRect(0, 0, W, H);
-
-            const N = cmnd.length;
-
-            ctx.strokeStyle = "#004E38";
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            for (let tau = 0; tau < N; tau++) {
-                const x = margin + (tau / N) * plotW;
-                // clamp to [0, 2] for display — values >> 1 are uninteresting
+            ctx.fillStyle = "#D8DCDB"; ctx.fillRect(0, 0, W, H);
+            ctx.strokeStyle = "#004E38"; ctx.lineWidth = 2; ctx.beginPath();
+            for (let tau = 0; tau < cmnd.length; tau++) {
+                const x = left + (tau / cmnd.length) * plotW;
                 const v = Math.min(cmnd[tau], 2);
-                const y = plotH - (v / 2) * plotH;
+                const y = top + plotH - (v / 2) * plotH;
                 tau === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
             }
             ctx.stroke();
 
-            // Draw threshold line at 0.1
-            ctx.strokeStyle = "#864A37";
-            ctx.lineWidth = 1;
-            ctx.setLineDash([6, 4]);
-            ctx.beginPath();
-            const threshY = plotH - (0.1 / 2) * plotH;
-            ctx.moveTo(margin, threshY);
-            ctx.lineTo(W, threshY);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.fillStyle = "#864A37";
-            ctx.fillText("0.1", margin + 4, threshY - 3);
-
-            const sr = audioCtx ? audioCtx.sampleRate : 44100;
-            drawAxesTicks(ctx, W, H, margin, "τ (ms)", "d'(τ)", [
-                { frac: 0.25, label: `${(0.25 * N / sr * 1000).toFixed(1)}` },
-                { frac: 0.5, label: `${(0.5 * N / sr * 1000).toFixed(1)}` },
-                { frac: 0.75, label: `${(0.75 * N / sr * 1000).toFixed(1)}` },
-            ], [
-                { frac: 0.5, label: "1.0" },
-                { frac: 1.0, label: "2.0" },
-            ]);
+            drawAxesTicks(ctx, W, H, "Lag (τ)", "d'(τ)",
+                [{ frac: 0, label: "0" }, { frac: 1, label: cmnd.length }],
+                [{ frac: 0.5, label: "1.0" }, { frac: 1, label: "2.0" }]
+            );
         }
 
         function drawThreshold(cmnd, tau) {
-            // Reuses the cmnd canvas but highlights where threshold was found.
-            // Call drawCMND first, then overlay the selected tau marker.
             drawCMND(cmnd, 'threshold-canvas');
             const canvas = document.getElementById('threshold-canvas');
             if (!canvas || tau == null) return;
             const ctx = canvas.getContext('2d');
-            const W = canvas.width;
-            const H = canvas.height;
-            const margin = 40;
-            const plotW = W - margin;
-            const plotH = H - margin;
-            const N = cmnd.length;
+            const { top, bottom, left, right } = PLOT_MARGIN;
+            const plotW = canvas.width - left - right, plotH = canvas.height - top - bottom;
 
-            const x = margin + (tau / N) * plotW;
-            ctx.strokeStyle = "#866F45"; // wm-gold
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, plotH);
-            ctx.stroke();
+            // Threshold Line
+            const threshY = top + plotH - (0.1 / 2) * plotH;
+            ctx.strokeStyle = "#964A37"; ctx.setLineDash([5, 5]);
+            ctx.beginPath(); ctx.moveTo(left, threshY); ctx.lineTo(left + plotW, threshY); ctx.stroke();
+            ctx.setLineDash([]);
 
-            const sr = audioCtx ? audioCtx.sampleRate : 44100;
-            ctx.fillStyle = "#866F45";
-            ctx.font = "bold 11px 'Times New Roman'";
-            ctx.fillText(`τ=${(tau / sr * 1000).toFixed(2)}ms`, x + 4, 14);
+            // Detected Tau Line
+            const x = left + (tau / cmnd.length) * plotW;
+            ctx.strokeStyle = "#866F45"; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + plotH); ctx.stroke();
         }
+
 
         function drawParabola(cmnd, tauFine) {
             const canvas = document.getElementById('parabola-canvas');
-            if (!canvas || tauFine == null) return;
             const ctx = canvas.getContext('2d');
-            const W = canvas.width = canvas.clientWidth;
-            const H = canvas.height = canvas.clientHeight;
-            const margin = 40;
-            const plotW = W - margin;
-            const plotH = H - margin;
+            const W = canvas.width = canvas.clientWidth, H = canvas.height = canvas.clientHeight;
+            const { top, bottom, left, right } = PLOT_MARGIN;
+            const plotW = W - left - right, plotH = H - top - bottom;
 
-            ctx.fillStyle = "#D8DCDB";
-            ctx.fillRect(0, 0, W, H);
-
-            // Show a tight window of ±5 samples around tauFine
+            ctx.fillStyle = "#D8DCDB"; ctx.fillRect(0, 0, W, H);
             const tauInt = Math.round(tauFine);
-            const windowHalf = 5;
-            const tauMin = Math.max(1, tauInt - windowHalf);
-            const tauMax = Math.min(cmnd.length - 2, tauInt + windowHalf);
+            const tauMin = Math.max(1, tauInt - 5), tauMax = Math.min(cmnd.length - 2, tauInt + 5);
             const span = tauMax - tauMin;
 
-            // Draw CMND dots in window
-            const yVals = [];
-            for (let t = tauMin; t <= tauMax; t++) yVals.push(cmnd[t]);
-            const yMin = Math.min(...yVals);
-            const yMax = Math.max(...yVals) || 1;
-            const yRange = yMax - yMin || 1;
-
-            ctx.fillStyle = "#004E38";
-            for (let t = tauMin; t <= tauMax; t++) {
-                const x = margin + ((t - tauMin) / span) * plotW;
-                const y = plotH - ((cmnd[t] - yMin) / yRange) * plotH * 0.9;
-                ctx.beginPath();
-                ctx.arc(x, y, 3, 0, 2 * Math.PI);
-                ctx.fill();
-            }
-
-            // Draw fitted parabola through tauInt-1, tauInt, tauInt+1
-            const y0 = cmnd[tauInt - 1], y1 = cmnd[tauInt], y2 = cmnd[tauInt + 1];
-            ctx.strokeStyle = "#866F45"; // gold for parabola
-            ctx.lineWidth = 2;
-            ctx.beginPath();
+            ctx.strokeStyle = "#866F45"; ctx.beginPath();
             for (let px = 0; px <= plotW; px++) {
                 const t = tauMin + (px / plotW) * span;
-                // Lagrange interpolation at t using points (tauInt-1, y0), (tauInt, y1), (tauInt+1, y2)
                 const dt = t - tauInt;
-                const v = y0 * (dt * (dt - 1)) / 2
-                    - y1 * ((dt + 1) * (dt - 1))
-                    + y2 * ((dt + 1) * dt) / 2;
-                const y = plotH - ((v - yMin) / yRange) * plotH * 0.9;
-                px === 0 ? ctx.moveTo(margin + px, y) : ctx.lineTo(margin + px, y);
+                const v = cmnd[tauInt - 1] * (dt * (dt - 1)) / 2 - cmnd[tauInt] * ((dt + 1) * (dt - 1)) + cmnd[tauInt + 1] * ((dt + 1) * dt) / 2;
+                const y = top + plotH - (Math.min(v, 2) / 2) * plotH;
+                px === 0 ? ctx.moveTo(left + px, y) : ctx.lineTo(left + px, y);
             }
             ctx.stroke();
 
-            // Mark the refined minimum
-            const x = margin + ((tauFine - tauMin) / span) * plotW;
-            ctx.strokeStyle = "#964A37";
-            ctx.lineWidth = 1;
-            ctx.setLineDash([4, 3]);
-            ctx.beginPath();
-            ctx.moveTo(x, 0); ctx.lineTo(x, plotH);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            const sr = audioCtx ? audioCtx.sampleRate : 44100;
-            const freqEst = sr / tauFine;
-            ctx.fillStyle = "#964A37";
-            ctx.font = "bold 11px 'Times New Roman'";
-            ctx.fillText(`τ̂=${tauFine.toFixed(2)} → ${freqEst.toFixed(1)}Hz`, margin + 4, 14);
-
-            drawAxesTicks(ctx, W, H, margin, "τ (samples)", "d'(τ)", [
-                { frac: 0.0, label: `${tauMin}` },
-                { frac: 0.5, label: `${tauInt}` },
-                { frac: 1.0, label: `${tauMax}` },
-            ], [
-                { frac: 0.5, label: yMin.toFixed(2) },
-                { frac: 1.0, label: yMax.toFixed(2) },
-            ]);
+            drawAxesTicks(ctx, W, H, "τ (Samples Zoomed)", "d'(τ)",
+                [{ frac: 0, label: tauMin }, { frac: 0.5, label: tauInt }, { frac: 1, label: tauMax }],
+                [{ frac: 0, label: "0" }, { frac: 1, label: "2" }]
+            );
         }
 
         function centsToHue(cents) {
