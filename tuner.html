@@ -411,7 +411,7 @@
 
         <div class="graph-container">
             <canvas id="amp-canvas"></canvas>
-            <div class="" graph-caption">Input Signal - Amplitudes over Time</div>
+            <div class="graph-caption">Input Signal - Amplitudes over Time</div>
 
         </div>
 
@@ -433,7 +433,8 @@
         fundemental frequency is closer to the origin point \(t\).
         <br>
         <br>
-        The Weiner-Khinchin theorem (in the discrete time case) allows us to compute the autocorrelation function using a
+        The Weiner-Khinchin theorem (in the discrete time case) allows us to compute the autocorrelation function using
+        a
         Fourier Transform.
         <br>
 
@@ -580,7 +581,8 @@
 
         <div class="graph-container">
             <canvas id="diff-canvas"></canvas>
-            <div class="graph-caption">Step 2: Difference Function - dips show candidates for the period</div>
+            <div class="graph-caption">Step 2: Difference Function - dips show candidates for the period; y-axis
+                automatically sets itself to the range from 0 to the maximum difference detected</div>
         </div>
 
         <br><br>
@@ -607,7 +609,7 @@
         $$
         d_t'(\tau) =
         \begin{cases}
-        1, & \text{if } \tau = 0 \\
+        1 & \text{if } \tau = 0 \\
         d_t(\tau) / \left[(1/\tau)\sum_{j=1}^{\tau}d_t(j)\right] & \text{otherwise}
         \end{cases}
         $$
@@ -681,8 +683,10 @@
 
         <div class="graph-container">
             <canvas id="freq-canvas"></canvas>
-            
-            <div class="graph-caption">Frequency Spectrum (Amplitude vs Frequency); Green bars are the frequency spectrum straight from the analyser used to take in the sound, and the gold bar indicates the Yin algorithm's predicted fundemental frequency.</div>
+
+            <div class="graph-caption">Frequency Spectrum (Amplitude vs Frequency); Green bars are the frequency
+                spectrum straight from the analyser used to take in the sound, and the gold bar indicates the Yin
+                algorithm's predicted fundemental frequency.</div>
             <div id="yin-display" style="font-weight: bold; color: #866F45; text-align: center; margin-top: 5px;">
                 Yin Prediction: -- Hz
             </div>
@@ -697,8 +701,7 @@
     <script type="module">
         import FFT from 'https://cdn.skypack.dev/fft.js';
         window.FFT = FFT;
-    </script>
-    <script>
+
         const startButton = document.getElementById('start');
         const scaleSelect = document.getElementById('scale-select');
         const apiBaseUrlInput = document.getElementById('api-base-url');
@@ -712,6 +715,17 @@
         const API_BASE_KEY = 'tunerApiBaseUrl';
         const PLOT_MARGIN = { top: 20, right: 20, bottom: 50, left: 60 };
 
+        const YIN_SIZE = 1024;
+        const yinBuffer = new Float32Array(YIN_SIZE);
+        const FFT_N = nextPow2(2 * YIN_SIZE); // 2048
+        const fftInstance = new FFT(FFT_N);
+        const fftOut = fftInstance.createComplexArray();
+        const fftInverse = fftInstance.createComplexArray();
+        const fftPadded = new Float32Array(FFT_N);
+        const autocorrBuf = new Float32Array(FFT_N);
+        const diffBuf = new Float32Array(YIN_SIZE);
+        const cmndBuf = new Float32Array(YIN_SIZE);
+
         let audioCtx;
         let analyser;
         let source;
@@ -721,10 +735,17 @@
         let bufferLength;
         let customTunings = [];
 
+        let autocorr;
+        let diff;
+        let cmnd;
+        let tau;
+        let tauFine;
+        let detectedFreq;
+
 
         const defaultScales = {
             "12-TET": {
-                notes: ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"],
+                notes: ["A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"],
                 cents: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100],
                 octave: 1200
             },
@@ -928,7 +949,7 @@
             const source = audioCtx.createMediaStreamSource(stream);
 
             analyser = audioCtx.createAnalyser();
-            analyser.fftSize = 2048;
+            analyser.fftSize = FFT_N;
             analyser.smoothingTimeConstant = 0.8;
 
             bufferLength = analyser.frequencyBinCount;
@@ -938,30 +959,89 @@
 
             source.connect(analyser);
             startButton.style.display = 'none';
-            update();
+            startPitchLoop();
             draw();
         };
 
+        function nextPow2(n) {
+            return Math.pow(2, Math.ceil(Math.log2(n)));
+        }
+
+
+        function startPitchLoop() {
+            setInterval(() => {
+
+                if (!analyser) return;
+                analyser.getFloatTimeDomainData(tdarray);
+                yinBuffer.set(tdarray.subarray(0, YIN_SIZE));
+
+                autocorr = computeAutocorr(yinBuffer);
+                diff = computeDiff(autocorr, YIN_SIZE);
+                cmnd = computeCMND(diff);
+                tau = findThreshold(cmnd, 0.1, audioCtx.sampleRate);
+                tauFine = tau !== -1 ? parabolicRefine(cmnd, tau) : null;
+                detectedFreq = tauFine ? audioCtx.sampleRate / tauFine : null;
+                // // Inside the setInterval of startPitchLoop
+                // const minVal = Math.min(...cmnd);
+                // console.log("Current CMND Minimum:", minVal.toFixed(3));
+                // // If this number is always > 0.1, your tuner will never "detect" a note.
+                updateDisplay(detectedFreq); // updates note/freq/needle/cloud
+            }, 60); // ~16ms is too tight; 60ms feels responsive without thrashing
+        }
+
+        function updateDisplay(frequency) {
+            console.log("HERE");
+            const noteEl = document.getElementById('note');
+            const freqEl = document.getElementById('freq');
+            const needleEl = document.getElementById('needle');
+            const displayEl = document.getElementById('yin-display');
+
+            // 1. Check the passed frequency parameter
+            if (frequency) {
+                const { note, cents } = getNote(frequency);   // declare first
+                const color = centsToColor(cents);
+                console.log("Updating UI with:", note, cents);
+
+                const absCents = Math.abs(cents);
+                const opacity = absCents > 45 ? 0.1 : 1 - (absCents / 45);
+
+                const bg = `rgba(255, 255, 255, 1)`;
+                const bgEdge = `rgba(0, 78, 56, ${opacity * 0.2})`;
+
+                document.getElementById('note').innerText = note;
+                document.getElementById('note').style.color = color;
+                document.getElementById('freq').innerText = `${frequency.toFixed(1)} Hz`;
+                document.getElementById('freq').style.color = color;
+                document.getElementById('needle').style.left = `${50 + Math.max(-50, Math.min(50, cents))}%`;
+                document.getElementById('needle').style.backgroundColor = color;
+
+                document.getElementById('cloud-circle').style.background = `radial-gradient(ellipse at center,
+                    ${bg} 0%,
+                    ${bg} 15%,
+                    ${bg} 35%,
+                    ${bgEdge} 55%,
+                    transparent 70%)`;
+
+
+                if (displayEl) {
+                    displayEl.innerText = `Yin Prediction: ${frequency.toFixed(2)} Hz`;
+                }
+            }
+        }
         function draw() {
             requestAnimationFrame(draw);
-            if (!analyser) return;
+            if (!analyser || !autocorr || !diff || !cmnd) return;
 
             analyser.getFloatTimeDomainData(tdarray);
             analyser.getFloatFrequencyData(fdarray);
 
-            const autocorr = computeAutocorr(tdarray);
-            const diff = computeDiff(autocorr);
-            const cmnd = computeCMND(diff);
-            const tau = findThreshold(cmnd, 0.1);
-            const tauFine = tau !== -1 ? parabolicRefine(cmnd, tau) : null;
+            // const autocorr = computeAutocorr(tdarray);
+            // const diff = computeDiff(autocorr, tdarray.length);
+            // const cmnd = computeCMND(diff);
+            // const tau = findThreshold(cmnd, 0.1, audioCtx.sampleRate);
+            // const tauFine = tau !== -1 ? parabolicRefine(cmnd, tau) : null;
 
-            const detectedFreq = tauFine ? audioCtx.sampleRate / tauFine : null;
-            const displayEl = document.getElementById('yin-display');
-            if (displayEl) {
-                displayEl.innerText = detectedFreq
-                    ? `Yin Prediction: ${detectedFreq.toFixed(2)} Hz`
-                    : `Yin Prediction: -- Hz`;
-            }
+            // const detectedFreq = tauFine ? audioCtx.sampleRate / tauFine : null;
 
             drawAmpTime(tdarray);
             drawAutocorr(autocorr);
@@ -1094,78 +1174,72 @@
 
 
 
-        function nextPow2(n) {
-            return Math.pow(2, Math.ceil(Math.log2(n)));
-        }
-
         // Compute all intermediates once
-        function computeAutocorr(tdarray) {
-            // Zero-pad to avoid circular correlation: length must be power of 2
-            const N = nextPow2(2 * tdarray.length);
-            const f = new FFT(N);
-
-            const out = f.createComplexArray();
-            const padded = new Float32Array(N);
-            padded.set(tdarray);
-
-            f.realTransform(out, padded);         // forward FFT → complex [re, im, re, im, ...]
-
-            // Power spectrum: multiply each bin by its conjugate
-            for (let i = 0; i < out.length; i += 2) {
-                const re = out[i], im = out[i + 1];
-                out[i] = re * re + im * im;   // |X|²
-                out[i + 1] = 0;
+        function computeAutocorr(signal) {
+            fftPadded.fill(0);
+            fftPadded.set(signal);
+            fftInstance.realTransform(fftOut, fftPadded);
+            for (let i = 0; i < fftOut.length; i += 2) {
+                const re = fftOut[i], im = fftOut[i + 1];
+                fftOut[i] = re * re + im * im;
+                fftOut[i + 1] = 0;
             }
-            const complexAutocorr = f.createComplexArray();
-            f.completeSpectrum(out);
-            f.inverseTransform(complexAutocorr, out);
-
-            const autocorr = new Float32Array(N);
-            for (let i = 0; i < N; i++) {
-                autocorr[i] = complexAutocorr[i * 2];
-            }
-            return autocorr;
+            fftInstance.completeSpectrum(fftOut);
+            fftInstance.inverseTransform(fftInverse, fftOut);
+            for (let i = 0; i < FFT_N; i++) autocorrBuf[i] = fftInverse[i * 2];
+            return autocorrBuf;
         }
-        function computeDiff(autocorr) {
-            const N = autocorr.length;
-            const diff = new Float32Array(N);
-            const r0 = autocorr[0];
-            diff[0] = 0;
-            for (let tau = 1; tau < N; tau++) {
-                diff[tau] = (2 * r0) - (2 * autocorr[tau]);
+               function computeDiff(signal) {
+            // YIN paper eq. 6: d_t(tau) = sum_{j=1}^{W} (x_j - x_{j+tau})^2
+            // Computed directly so that r_t(0) and r_{t+tau}(0) are handled
+            // separately per the paper — the FFT shortcut 2*r(0)-2*r(tau) only
+            // holds when both zero-lag terms are identical, which is not true
+            // for a finite windowed signal once tau > 0.
+            const W = signal.length;
+            diffBuf[0] = 0;
+            for (let tau = 1; tau < W; tau++) {
+                let sum = 0;
+                const limit = W - tau;
+                for (let j = 0; j < limit; j++) {
+                    const delta = signal[j] - signal[j + tau];
+                    sum += delta * delta;
+                }
+                diffBuf[tau] = sum;
             }
-            return diff;
+            return diffBuf;
         }
+
         function computeCMND(diff) {
-            const N = diff.length;
-            const cmnd = new Float32Array(N);
-            cmnd[0] = 1;
+            cmndBuf[0] = 1;
             let runningSum = 0;
-            for (let tau = 1; tau < N; tau++) {
+            for (let tau = 1; tau < diff.length; tau++) {
                 runningSum = runningSum + diff[tau];
 
                 if (runningSum === 0) {
-                    cmnd[tau] = 1;
+                    cmndBuf[tau] = 1;
                 } else {
-                    cmnd[tau] = diff[tau] / (runningSum / tau);
+                    cmndBuf[tau] = diff[tau] / (runningSum / tau);
                 }
 
             }
 
-            return cmnd;
+            return cmndBuf;
         }
         /**
  * Step 4: Find the first local minimum below the threshold.
  * If no dip is below the threshold, it falls back to the global minimum.
  */
-        function findThreshold(cmnd, threshold) {
-            let tau = 2; // Start after tau=0/1 to avoid the initial peak
-            const N = cmnd.length;
+        function findThreshold(cmnd, threshold, sampleRate) {
+            const minFreq = 50;   // Hz — don't detect below this
+            const maxFreq = 1600; // Hz — don't detect above this
+            const tauMin = Math.floor(sampleRate / maxFreq);
+            const tauMax = Math.ceil(sampleRate / minFreq);
+            const N = Math.min(cmnd.length, tauMax);
 
-            // 1. Search for the first value that drops below the threshold
+            let tau = tauMin;
+
             while (tau < N) {
                 if (cmnd[tau] < threshold) {
-                    // 2. Once below threshold, keep going until it starts rising (finding the local minimum)
                     while (tau + 1 < N && cmnd[tau + 1] < cmnd[tau]) {
                         tau++;
                     }
@@ -1177,28 +1251,7 @@
             return -1;
         }
 
-        /**
-         * Step 5: Refine the integer tau using parabolic interpolation.
-         * Fits a parabola to the point and its two neighbors to find a sub-sample minimum.
-         */
-        // function parabolicRefine(cmnd, tau) {
-        //     // Cannot interpolate if at the very edges of the array
-        //     if (tau <= 0 || tau >= cmnd.length - 1) return tau;
 
-        //     const y0 = cmnd[tau - 1];
-        //     const y1 = cmnd[tau];
-        //     const y2 = cmnd[tau + 1];
-
-        //     // The vertex of the parabola is at x = tau + s
-        //     // s = (y2 - y0) / (2 * (2 * y1 - y0 - y2))
-        //     const denominator = 2 * (2 * y1 - y0 - y2);
-
-        //     // If the denominator is 0, the points are linear; no refinement possible
-        //     if (Math.abs(denominator) < 1e-10) return tau;
-
-        //     const s = (y2 - y0) / denominator;
-        //     return tau + s;
-        // }
         function parabolicRefine(cmnd, tau) {
             if (tau < 1 || tau >= cmnd.length - 1) return tau;
             const y0 = cmnd[tau - 1], y1 = cmnd[tau], y2 = cmnd[tau + 1];
@@ -1338,77 +1391,6 @@
         }
 
         function centsToColor(cents) {
-            const hue = centsToHue(cents);
-            return `hsl(${hue}, 50%, 75%)`;
-        }
-
-        function update() {
-            analyser.getFloatTimeDomainData(buffer);
-            const pitch = autoCorrelate(buffer, audioCtx.sampleRate);
-
-            if (pitch !== -1) {
-                const { note, cents } = getNote(pitch);
-                const color = centsToColor(cents);
-                const hue = centsToHue(cents);
-                const absCents = Math.abs(cents);
-                const opacity = absCents > 45 ? 0.1 : 1 - (absCents / 45);
-
-                const bg = `rgba(255, 255, 255, 1)`;
-                const bgMid = `rgba(0, 78, 56, ${opacity * 0.7})`;
-                const bgEdge = `rgba(0, 78, 56, ${opacity * 0.2})`;
-
-                document.getElementById('note').innerText = note;
-                document.getElementById('note').style.color = color;
-                document.getElementById('freq').innerText = `${pitch.toFixed(1)} Hz`;
-                document.getElementById('freq').style.color = color;
-                document.getElementById('needle').style.left = `${50 + Math.max(-50, Math.min(50, cents))}%`;
-                document.getElementById('needle').style.backgroundColor = color;
-
-                document.getElementById('cloud-circle').style.background = `radial-gradient(ellipse at center,
-                    ${bg} 0%,
-                    ${bg} 15%,
-                    ${bg} 35%,
-                    ${bgEdge} 55%,
-                    transparent 70%)`;
-            }
-            requestAnimationFrame(update);
-        };
-
-
-        function autoCorrelate(buf, sampleRate) {
-            let size = buf.length;
-            let rms = 0;
-            for (let i = 0; i < size; i++) rms += buf[i] * buf[i];
-            if (Math.sqrt(rms / size) < 0.01) return -1; // Too quiet
-
-            let r1 = 0, r2 = size - 1, thres = 0.2;
-            for (let i = 0; i < size / 2; i++) {
-                if (Math.abs(buf[i]) < thres) { r1 = i; break; }
-            }
-            for (let i = 1; i < size / 2; i++) {
-                if (Math.abs(buf[size - i]) < thres) { r2 = size - i; break; }
-            }
-
-            buf = buf.slice(r1, r2);
-            size = buf.length;
-
-            let c = new Array(size).fill(0);
-            for (let i = 0; i < size; i++) {
-                for (let j = 0; j < size - i; j++) {
-                    c[i] = c[i] + buf[j] * buf[j + i];
-                }
-            }
-
-            let d = 0; while (c[d] > c[d + 1]) d++;
-            let maxval = -1, maxpos = -1;
-            for (let i = d; i < size; i++) {
-                if (c[i] > maxval) { maxval = c[i]; maxpos = i; }
-            }
-
-            return sampleRate / maxpos;
-        }
-
-        function centsToColor(cents) {
             const absCents = Math.abs(cents);
             if (absCents > 45) {
                 // Too far — not really attempting this note
@@ -1418,8 +1400,6 @@
             const hue = 120 - (absCents / 45) * 120;
             return `hsl(${hue}, 80%, 35%)`;
         }
-
-
 
         function getNote(frequency) {
             if (currentScale.kind === 'absolute') {
