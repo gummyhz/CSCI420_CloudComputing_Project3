@@ -711,13 +711,11 @@
         const customNoteLinesInput = document.getElementById('custom-note-lines');
         const customStatus = document.getElementById('custom-status');
 
-        const FFT_SIZE = 2048;
         const API_BASE_KEY = 'tunerApiBaseUrl';
         const PLOT_MARGIN = { top: 20, right: 20, bottom: 50, left: 60 };
 
         const YIN_SIZE = 1024;
-        const yinBuffer = new Float32Array(YIN_SIZE);
-        const FFT_N = nextPow2(2 * YIN_SIZE); // 2048
+        const FFT_N = nextPow2(2 * YIN_SIZE);
         const fftInstance = new FFT(FFT_N);
         const fftOut = fftInstance.createComplexArray();
         const fftInverse = fftInstance.createComplexArray();
@@ -963,34 +961,9 @@
             draw();
         };
 
-        function nextPow2(n) {
-            return Math.pow(2, Math.ceil(Math.log2(n)));
-        }
 
-
-        function startPitchLoop() {
-            setInterval(() => {
-
-                if (!analyser) return;
-                analyser.getFloatTimeDomainData(tdarray);
-                yinBuffer.set(tdarray.subarray(0, YIN_SIZE));
-
-                autocorr = computeAutocorr(yinBuffer);
-                diff = computeDiff(autocorr, YIN_SIZE);
-                cmnd = computeCMND(diff);
-                tau = findThreshold(cmnd, 0.1, audioCtx.sampleRate);
-                tauFine = tau !== -1 ? parabolicRefine(cmnd, tau) : null;
-                detectedFreq = tauFine ? audioCtx.sampleRate / tauFine : null;
-                // // Inside the setInterval of startPitchLoop
-                // const minVal = Math.min(...cmnd);
-                // console.log("Current CMND Minimum:", minVal.toFixed(3));
-                // // If this number is always > 0.1, your tuner will never "detect" a note.
-                updateDisplay(detectedFreq); // updates note/freq/needle/cloud
-            }, 60); // ~16ms is too tight; 60ms feels responsive without thrashing
-        }
 
         function updateDisplay(frequency) {
-            console.log("HERE");
             const noteEl = document.getElementById('note');
             const freqEl = document.getElementById('freq');
             const needleEl = document.getElementById('needle');
@@ -1000,7 +973,6 @@
             if (frequency) {
                 const { note, cents } = getNote(frequency);   // declare first
                 const color = centsToColor(cents);
-                console.log("Updating UI with:", note, cents);
 
                 const absCents = Math.abs(cents);
                 const opacity = absCents > 45 ? 0.1 : 1 - (absCents / 45);
@@ -1027,31 +999,6 @@
                     displayEl.innerText = `Yin Prediction: ${frequency.toFixed(2)} Hz`;
                 }
             }
-        }
-        function draw() {
-            requestAnimationFrame(draw);
-            if (!analyser || !autocorr || !diff || !cmnd) return;
-
-            analyser.getFloatTimeDomainData(tdarray);
-            analyser.getFloatFrequencyData(fdarray);
-
-            // const autocorr = computeAutocorr(tdarray);
-            // const diff = computeDiff(autocorr, tdarray.length);
-            // const cmnd = computeCMND(diff);
-            // const tau = findThreshold(cmnd, 0.1, audioCtx.sampleRate);
-            // const tauFine = tau !== -1 ? parabolicRefine(cmnd, tau) : null;
-
-            // const detectedFreq = tauFine ? audioCtx.sampleRate / tauFine : null;
-
-            drawAmpTime(tdarray);
-            drawAutocorr(autocorr);
-            drawDiff(diff);
-            drawCMND(cmnd);
-            drawThreshold(cmnd, tau);
-            if (tauFine) {
-                drawParabola(cmnd, tauFine);
-            }
-            drawFreqTime(fdarray, detectedFreq);
         }
 
         // Amplitudes from analyser
@@ -1173,91 +1120,160 @@
         }
 
 
+        function draw() {
+            requestAnimationFrame(draw);
+            if (!analyser || !autocorr || !diff || !cmnd) return;
 
-        // Compute all intermediates once
-        function computeAutocorr(signal) {
+            analyser.getFloatTimeDomainData(tdarray);
+            analyser.getFloatFrequencyData(fdarray);
+
+            drawAmpTime(tdarray);
+            drawAutocorr(autocorr);
+            drawDiff(diff);
+            drawCMND(cmnd);
+            drawThreshold(cmnd, tau);
+            if (tauFine) {
+                drawParabola(cmnd, tauFine);
+            }
+            drawFreqTime(fdarray, detectedFreq);
+        }
+
+        function nextPow2(n) {
+            return Math.pow(2, Math.ceil(Math.log2(n)));
+        }
+        function getRMS(signal) {
+            let sum = 0;
+            for (let i = 0; i < signal.length; i++) sum += signal[i] * signal[i];
+            return Math.sqrt(sum / signal.length);
+        }
+
+        const pitchHistory = [];
+        const MEDIAN_SIZE = 7;
+
+        function medianFreq(freq) {
+            pitchHistory.push(freq);
+            if (pitchHistory.length > MEDIAN_SIZE) pitchHistory.shift();
+            const sorted = [...pitchHistory].sort((a, b) => a - b);
+            return sorted[Math.floor(sorted.length / 2)];
+        }
+
+        function startPitchLoop() {
+            let smoothedFreq = null;
+            // const FREQ_ALPHA = 0.25;
+            const RMS_THRESHOLD = 0.08; // tune this: ~-40dBFS
+            setInterval(() => {
+                if (!analyser || !audioCtx) return;
+
+                analyser.getFloatTimeDomainData(tdarray);
+                const rms = getRMS(tdarray);
+
+                if (rms < RMS_THRESHOLD) {
+                    detectedFreq = null;
+                    updateDisplay(null);
+                    return;
+                }
+
+                // Process Steps
+                computeAutocorr(tdarray, autocorrBuf); // Step 1
+                computeDiff(tdarray, diffBuf);         // Step 2
+                computeCMND(diffBuf, cmndBuf);         // Step 3
+
+                tau = findThreshold(cmndBuf, 0.1);     // Step 4
+                tauFine = parabolicInterpolation(cmndBuf, tau); // Step 5
+
+                // Global variables for the draw() function to use
+                autocorr = autocorrBuf;
+                diff = diffBuf;
+                cmnd = cmndBuf;
+
+                const pitch = audioCtx.sampleRate / tauFine;
+
+                if (pitch > 60 && pitch < 2000) {
+                    detectedFreq = medianFreq(pitch);
+                }
+
+                updateDisplay(detectedFreq);
+            }, 50);
+        }
+
+        function computeAutocorr(signal, autocorr) {
+            const N = signal.length;
             fftPadded.fill(0);
-            fftPadded.set(signal);
+            for (let i = 0; i < N; i++) fftPadded[i] = signal[i];
+
             fftInstance.realTransform(fftOut, fftPadded);
+            fftInstance.completeSpectrum(fftOut);
+
+            // Multiply by complex conjugate (power spectrum)
             for (let i = 0; i < fftOut.length; i += 2) {
                 const re = fftOut[i], im = fftOut[i + 1];
                 fftOut[i] = re * re + im * im;
                 fftOut[i + 1] = 0;
             }
-            fftInstance.completeSpectrum(fftOut);
+
             fftInstance.inverseTransform(fftInverse, fftOut);
-            for (let i = 0; i < FFT_N; i++) autocorrBuf[i] = fftInverse[i * 2];
-            return autocorrBuf;
-        }
-               function computeDiff(signal) {
-            // YIN paper eq. 6: d_t(tau) = sum_{j=1}^{W} (x_j - x_{j+tau})^2
-            // Computed directly so that r_t(0) and r_{t+tau}(0) are handled
-            // separately per the paper — the FFT shortcut 2*r(0)-2*r(tau) only
-            // holds when both zero-lag terms are identical, which is not true
-            // for a finite windowed signal once tau > 0.
-            const W = signal.length;
-            diffBuf[0] = 0;
-            for (let tau = 1; tau < W; tau++) {
-                let sum = 0;
-                const limit = W - tau;
-                for (let j = 0; j < limit; j++) {
-                    const delta = signal[j] - signal[j + tau];
-                    sum += delta * delta;
-                }
-                diffBuf[tau] = sum;
+            const scale = 1 / FFT_N;
+            for (let i = 0; i < autocorr.length; i++) {
+                autocorr[i] = fftInverse[i * 2] * scale;
             }
-            return diffBuf;
         }
-
-        function computeCMND(diff) {
-            cmndBuf[0] = 1;
+        function computeDiff(signal, diff) {
+            const N = signal.length / 2;
+            for (let tau = 0; tau < N; tau++) {
+                diff[tau] = 0;
+                for (let i = 0; i < N; i++) {
+                    const delta = signal[i] - signal[i + tau];
+                    diff[tau] += delta * delta;
+                }
+            }
+        }
+        function computeCMND(diff, cmnd) {
+            const N = diff.length;
+            cmnd[0] = 1;
             let runningSum = 0;
-            for (let tau = 1; tau < diff.length; tau++) {
-                runningSum = runningSum + diff[tau];
-
+            for (let tau = 1; tau < N; tau++) {
+                runningSum += diff[tau];
                 if (runningSum === 0) {
-                    cmndBuf[tau] = 1;
+                    cmnd[tau] = 1;
                 } else {
-                    cmndBuf[tau] = diff[tau] / (runningSum / tau);
+                    cmnd[tau] = diff[tau] / (runningSum / tau);
                 }
-
             }
-
-            return cmndBuf;
         }
-        /**
- * Step 4: Find the first local minimum below the threshold.
- * If no dip is below the threshold, it falls back to the global minimum.
- */
-        function findThreshold(cmnd, threshold, sampleRate) {
-            const minFreq = 50;   // Hz — don't detect below this
-            const maxFreq = 1600; // Hz — don't detect above this
-            const tauMin = Math.floor(sampleRate / maxFreq);
-            const tauMax = Math.ceil(sampleRate / minFreq);
-            const N = Math.min(cmnd.length, tauMax);
 
-            let tau = tauMin;
-
-            while (tau < N) {
+        function findThreshold(cmnd, threshold = 0.1) {
+            const N = cmnd.length;
+            // Find the first dip below threshold
+            for (let tau = 2; tau < N; tau++) {
                 if (cmnd[tau] < threshold) {
+                    // Find local minimum
                     while (tau + 1 < N && cmnd[tau + 1] < cmnd[tau]) {
                         tau++;
                     }
                     return tau;
                 }
-                tau++;
             }
-
-            return -1;
+            // Fallback: global minimum
+            let minTau = 0;
+            let minVal = Infinity;
+            for (let tau = 2; tau < N; tau++) {
+                if (cmnd[tau] < minVal) {
+                    minVal = cmnd[tau];
+                    minTau = tau;
+                }
+            }
+            return minTau
         }
 
-
-        function parabolicRefine(cmnd, tau) {
+        function parabolicInterpolation(cmnd, tau) {
             if (tau < 1 || tau >= cmnd.length - 1) return tau;
-            const y0 = cmnd[tau - 1], y1 = cmnd[tau], y2 = cmnd[tau + 1];
-            const denom = 2 * (2 * y1 - y0 - y2);
-            if (Math.abs(denom) < 1e-10) return tau;
-            return tau + (y2 - y0) / denom;
+            const s0 = cmnd[tau - 1];
+            const s1 = cmnd[tau];
+            const s2 = cmnd[tau + 1];
+
+            const denom = 2 * (s0 - 2 * s1 + s2);
+            if (denom === 0) return tau;
+            return tau - (s2 - s0) / denom;
         }
 
         // Draw Yin canvases
