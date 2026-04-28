@@ -707,10 +707,10 @@
         const scaleSelect = document.getElementById('scale-select');
         const apiBaseUrlInput = document.getElementById('api-base-url');
         const referenceHzInput = document.getElementById('reference-hz');
-        const customTuningNameInput = document.getElementById('custom-tuning-name');
-        const customTuningDescriptionInput = document.getElementById('custom-tuning-description');
-        const customNoteLinesInput = document.getElementById('custom-note-lines');
-        const customStatus = document.getElementById('custom-status');
+        // const customTuningNameInput = document.getElementById('custom-tuning-name');
+        // const customTuningDescriptionInput = document.getElementById('custom-tuning-description');
+        // const customNoteLinesInput = document.getElementById('custom-note-lines');
+        // const customStatus = document.getElementById('custom-status');
 
         const API_BASE_KEY = 'tunerApiBaseUrl';
         const PLOT_MARGIN = { top: 20, right: 20, bottom: 50, left: 60 };
@@ -923,23 +923,23 @@
         }
 
         scaleSelect.addEventListener('change', applySelectedScale);
-        document.getElementById('save-api-url-btn').addEventListener('click', () => {
-            const base = getApiBase();
-            if (!base) {
-                setStatus('Enter an API base URL first.', true);
-                return;
-            }
-            localStorage.setItem(API_BASE_KEY, base);
-            setStatus('API base URL saved.');
-        });
-        document.getElementById('refresh-custom-btn').addEventListener('click', refreshCustomTunings);
-        document.getElementById('save-custom-btn').addEventListener('click', saveCustomTuning);
-        document.getElementById('delete-custom-btn').addEventListener('click', deleteSelectedCustomTuning);
+        // document.getElementById('save-api-url-btn').addEventListener('click', () => {
+        //     const base = getApiBase();
+        //     if (!base) {
+        //         setStatus('Enter an API base URL first.', true);
+        //         return;
+        //     }
+        //     localStorage.setItem(API_BASE_KEY, base);
+        //     setStatus('API base URL saved.');
+        // });
+        // document.getElementById('refresh-custom-btn').addEventListener('click', refreshCustomTunings);
+        // document.getElementById('save-custom-btn').addEventListener('click', saveCustomTuning);
+        // document.getElementById('delete-custom-btn').addEventListener('click', deleteSelectedCustomTuning);
 
-        const storedApiBase = localStorage.getItem(API_BASE_KEY);
-        if (storedApiBase) {
-            apiBaseUrlInput.value = storedApiBase;
-        }
+        // const storedApiBase = localStorage.getItem(API_BASE_KEY);
+        // if (storedApiBase) {
+        //     apiBaseUrlInput.value = storedApiBase;
+        // }
 
         // Activate microphone
         document.getElementById('start').onclick = async () => {
@@ -1473,7 +1473,7 @@
             return { note: nearestNote, cents: deviation };
         }
 
-        refreshCustomTunings();
+      
     </script>
 </body>
 
